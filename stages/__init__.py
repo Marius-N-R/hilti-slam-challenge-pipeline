@@ -9,6 +9,7 @@ from .base import Stage, StageRegistry
 from .clean import CleanStage
 from .convert import ConvertStage
 from .floorplan_overlay import FloorplanOverlayStage
+from .pca_align import PcaAlignStage
 from .plot_path import PlotPathStage
 from .slam import SlamStage
 from .stitch import StitchStage
@@ -18,6 +19,7 @@ registry = StageRegistry()
 registry.register(StitchStage())
 registry.register(ConvertStage())
 registry.register(SlamStage())
+registry.register(PcaAlignStage())
 registry.register(PlotPathStage())
 registry.register(FloorplanOverlayStage())
 registry.register(CleanStage())
@@ -29,6 +31,7 @@ __all__ = [
     "StitchStage",
     "ConvertStage",
     "SlamStage",
+    "PcaAlignStage",
     "PlotPathStage",
     "FloorplanOverlayStage",
     "CleanStage",

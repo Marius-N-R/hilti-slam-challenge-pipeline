@@ -9,6 +9,7 @@ This project runs stage-based processing on ROS2 bag data using Dagger + Docker,
 - Orchestrates processing stages from a single CLI (`pipeline.py`)
 - Runs ROS tooling in a reproducible container workspace
 - Supports stage chaining (`stitch`, `slam`, `plot_path`, etc.)
+- Supports PCA-based trajectory alignment as an intermediate step
 - Preserves per-stage logs/status files for debugging
 - Exports artifacts to a structured output directory per bag
 
@@ -22,6 +23,7 @@ stages/                    # Stage implementations
   convert.py               # ROS2 bag -> EuRoC format
   slam.py                  # OpenVINS SLAM stage wrapper
   slam_runner.py           # In-container SLAM runtime + diagnostics
+  pca_align.py             # PCA-based trajectory alignment
   plot_path.py             # Render trajectory image
   floorplan_overlay.py     # Overlay trajectory on floorplan placeholder/image
   clean.py                 # Host-side output cleanup stage
@@ -70,6 +72,11 @@ python pipeline.py --stages slam plot_path \
   --input data/floor_1/2025-05-05/run_1/rosbag \
   --output results/
 
+# SLAM + PCA alignment + rendered trajectory image
+python pipeline.py --stages pca_align plot_path \
+  --input data/floor_1/2025-05-05/run_1/rosbag \
+  --output results/
+
 # SLAM + floorplan overlay placeholder
 python pipeline.py --stages slam floorplan_overlay \
   --input data/floor_1/2025-05-05/run_1/rosbag \
@@ -112,6 +119,7 @@ Visualization options:
 | `stitch` | Convert dual fisheye streams to panorama topics | ROS2 bag | stitched ROS2 bag (`rosbag_pano`) |
 | `convert` | Export ROS2 bag to EuRoC layout | ROS2 bag | EuRoC directory |
 | `slam` | Run OpenVINS visual-inertial SLAM | ROS2 bag with `cam0/cam1 + imu` | `trajectory.txt` + SLAM logs |
+| `pca_align` | Reorient trajectory using PCA axes | `trajectory.txt` | aligned `trajectory.txt` |
 | `plot_path` | Draw 2D trajectory image | `trajectory.txt` | `trajectory_path.png` |
 | `floorplan_overlay` | Draw trajectory over floorplan image | `trajectory.txt` (+ optional floorplan image) | `floorplan_overlay.png` |
 | `clean` | Remove output directory for the input run | output folder as input | cleaned host output |
@@ -120,8 +128,11 @@ Visualization options:
 
 The pipeline auto-adds dependencies when needed:
 
+- `pca_align` automatically includes `slam`
 - `plot_path` automatically includes `slam`
 - `floorplan_overlay` automatically includes `slam`
+
+If `pca_align` is explicitly included together with `plot_path` or `floorplan_overlay`, the aligned trajectory is used by downstream stages.
 
 Smart skip behavior is also implemented:
 
@@ -179,6 +190,12 @@ Visualization artifacts:
 - `trajectory_path.png` from `plot_path`
 - `floorplan_overlay.png` from `floorplan_overlay`
 
+PCA alignment artifacts:
+
+- `trajectory.txt`: rewritten with aligned positions
+- `pca_alignment_matrix.txt`: alignment basis matrix
+- `pca_alignment_info.txt`: point count, mean, eigenvalues
+
 ## Floorplan Overlay Behavior
 
 `floorplan_overlay` tries floorplan images in this order:
@@ -226,6 +243,25 @@ python pipeline.py --stages slam floorplan_overlay \
   --slam-rate 0.5
 ```
 
+### PCA-align, then plot path
+
+```bash
+python pipeline.py --stages pca_align plot_path \
+  --input data/floor_1/2025-05-05/run_1/rosbag \
+  --output results/ \
+  --slam-rate 0.5
+```
+
+### PCA-align, then overlay on floorplan
+
+```bash
+python pipeline.py --stages pca_align floorplan_overlay \
+  --input data/floor_1/2025-05-05/run_1/rosbag \
+  --output results/ \
+  --slam-rate 0.5 \
+  --floorplan ./data/floorplans/masks_no_windows/floor_1.png
+```
+
 ### Use an explicit floorplan image
 
 ```bash
@@ -269,3 +305,4 @@ pytest
 
 - Input `data/` is mounted at runtime; avoid writing processing outputs into `data/`.
 - SLAM artifacts are mirrored to the selected output and to `results/` for convenience.
+- The pipeline intentionally uses a fast process exit after final export because Dagger disconnect can hang on this machine during teardown.

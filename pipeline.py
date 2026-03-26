@@ -9,6 +9,7 @@ Available stages:
   - stitch   : Convert dual fisheye to 360° equirectangular
   - convert  : Convert ROS2 bags to EuRoC format
   - slam     : Run OpenVINS visual-inertial odometry
+  - pca_align: Align SLAM trajectory using PCA
   - plot_path: Render SLAM trajectory to an image
   - floorplan_overlay: Overlay trajectory on a floorplan image
   - clean    : Remove pipeline outputs (leaves input data intact)
@@ -26,7 +27,6 @@ Adding Custom Stages:
 import argparse
 import asyncio
 import os
-import signal
 import shutil
 import sys
 import time
@@ -190,7 +190,7 @@ async def run_pipeline(
 
             if not per_bag_stages:
                 print("[pipeline] No stages to run after filtering")
-                os._exit(1)
+                return 1
 
             # Run selected stages in sequence
             current_data = input_data
@@ -201,7 +201,7 @@ async def run_pipeline(
                 if stage is None:
                     print(f"[error] Unknown stage: {name}")
                     print("Use --list-stages to see available stages")
-                    os._exit(1)
+                    return 1
                 stages.append(stage)
 
             stage_failed = False
@@ -612,6 +612,7 @@ def expand_stage_dependencies(stage_names: List[str]) -> List[str]:
     """
     deps = {
         # slam has no dependencies - runs on original bag with cam0/cam1 topics
+        "pca_align": ["slam"],
         "plot_path": ["slam"],
         "floorplan_overlay": ["slam"],
     }
@@ -627,6 +628,16 @@ def expand_stage_dependencies(stage_names: List[str]) -> List[str]:
 
     for stage in stage_names:
         add_stage(stage)
+
+    if "pca_align" in stage_names:
+        updated = []
+        for name in ordered:
+            updated.append(name)
+            if name == "pca_align":
+                continue
+            if name in {"plot_path", "floorplan_overlay"} and "pca_align" not in updated:
+                updated.append("pca_align")
+        ordered = updated
 
     return ordered
 
@@ -679,17 +690,6 @@ def expand_input_paths(patterns: List[str]) -> List[str]:
     return expanded
 
 
-async def run_with_cleanup(coro):
-    """Run a coroutine and ensure proper cleanup on completion or interrupt."""
-    result = None
-    try:
-        result = await coro
-    except asyncio.CancelledError:
-        print("\n[pipeline] Cancelled")
-        result = 1
-    return result
-
-
 def main():
     args = parse_args()
 
@@ -733,35 +733,12 @@ def main():
     if expanded_stages != args.stages:
         print(f"[pipeline] Auto-expanded stages: {', '.join(expanded_stages)}")
 
-    # Run the pipeline with proper cleanup handling
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    # Set up signal handlers for graceful shutdown
-    def signal_handler():
-        for task in asyncio.all_tasks(loop):
-            task.cancel()
-
-    try:
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, signal_handler)
-    except NotImplementedError:
-        # Signal handlers not supported on Windows
-        pass
-
-    try:
-        pipeline_coro = run_pipeline(
-            stage_names=expanded_stages,
-            input_bags=input_bags,
-            output_dir=args.output,
-            config=config,
-        )
-        result = loop.run_until_complete(run_with_cleanup(pipeline_coro))
-        # If we get here, run_pipeline didn't exit (e.g., early error return)
-        os._exit(result if result is not None else 1)
-    except KeyboardInterrupt:
-        print("\n[pipeline] Interrupted")
-        os._exit(1)
+    return asyncio.run(run_pipeline(
+        stage_names=expanded_stages,
+        input_bags=input_bags,
+        output_dir=args.output,
+        config=config,
+    ))
 
 
 if __name__ == "__main__":

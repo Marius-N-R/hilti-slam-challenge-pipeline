@@ -65,22 +65,26 @@ python pipeline.py --list-stages
 # Run SLAM only
 python pipeline.py --stages slam \
   --input data/floor_1/2025-05-05/run_1/rosbag \
-  --output results/
+  --output results/ \
+  --slam-rate 0.5
 
 # SLAM + rendered trajectory image
 python pipeline.py --stages slam plot_path \
   --input data/floor_1/2025-05-05/run_1/rosbag \
-  --output results/
+  --output results/ \
+  --slam-rate 0.5
 
 # SLAM + PCA alignment + rendered trajectory image
 python pipeline.py --stages pca_align plot_path \
   --input data/floor_1/2025-05-05/run_1/rosbag \
-  --output results/
+  --output results/ \
+  --slam-rate 0.5
 
 # SLAM + floorplan overlay placeholder
 python pipeline.py --stages slam floorplan_overlay \
   --input data/floor_1/2025-05-05/run_1/rosbag \
-  --output results/
+  --output results/ \
+  --slam-rate 0.5
 ```
 
 ## CLI Reference

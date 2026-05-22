@@ -45,7 +45,7 @@ set -euo pipefail
 mkdir -p /output
 cp -a /input/. /output/
 export WINDOWS_PIPELINE_ROOT=/opt/windows_pipeline
-export PYTHONPATH=/opt/windows_pipeline/py360convert:${{PYTHONPATH:-}}
+export PYTHONPATH=/opt/windows_pipeline/py360convert:${PYTHONPATH:-}
 python /opt/pipeline_scripts/windows/run_rectify.py '""" + runtime_args + """'
 """
 

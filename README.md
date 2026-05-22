@@ -9,6 +9,7 @@ This project runs stage-based processing on ROS2 bag data using Dagger + Docker,
 - Orchestrates processing stages from a single CLI (`pipeline.py`)
 - Runs ROS tooling in a reproducible container workspace
 - Supports stage chaining (`stitch`, `slam`, `plot_path`, etc.)
+- Targets ROS-native perception stages that consume bag topics via subscribers
 - Supports PCA-based trajectory alignment as an intermediate step
 - Preserves per-stage logs/status files for debugging
 - Exports artifacts to a structured output directory per bag
@@ -30,6 +31,8 @@ stages/                    # Stage implementations
 data/                      # Example ROS2 bag inputs
 results/                   # Common output location
 Dockerfile.workspace       # ROS2/OpenVINS workspace image
+Dockerfile.windows.*       # Transitional image-only window pipeline images
+third_party/windows_pipeline/ # Vendored GroundingDINO / SAM3 / py360convert
 ```
 
 ## Requirements
@@ -39,6 +42,24 @@ Dockerfile.workspace       # ROS2/OpenVINS workspace image
 - Network access for first workspace image build (clones challenge repos)
 - Recommended local environment: Conda env `3dvis`
 - For `window_*` GPU runs: NVIDIA GPU, `nvidia-smi`, and Docker GPU runtime support
+
+## Window Detection Direction
+
+The intended long-term integration for window detection is a ROS-native stage that:
+
+- subscribes directly to bag-replayed image topics inside the container
+- runs detection/segmentation from ROS callbacks instead of from a standalone image file
+- optionally consumes IMU or SLAM pose topics for downstream projection
+- exports masks, boxes, debug images, and per-frame metadata to the stage output directory
+
+In practice, that means the preferred architecture is:
+
+1. a ROS-enabled container profile that contains both the existing ROS workspace and the vendored ML stack
+2. a `window_detect_ros` stage with `requires_ros_runtime = True`
+3. a ROS2 node that subscribes to camera topics during `ros2 bag play`
+4. optional downstream stages such as `window_project` for floor projection or SLAM alignment
+
+The current `window_dino`, `window_sam`, and `window_rectify` stages are a transitional, file-based integration used to stabilize the vendored model stack before moving the full window pipeline into the ROS execution model.
 
 ## Setup
 
@@ -58,6 +79,8 @@ pip install -e ".[dev]"
 On first run, the pipeline builds `slam-workspace:latest` from `Dockerfile.workspace`, then exports it to `.cache/slam-workspace.tar`. This can take several minutes.
 
 The first `window_*` run also builds either `windows-pipeline-cpu:latest` or `windows-pipeline-gpu:latest` and exports it to `.cache/`.
+
+These image-only stages are transitional. The planned ROS-native window stage will eventually live in a ROS-capable container profile instead of a separate file-processing image.
 
 ## Quick Start
 
@@ -88,19 +111,12 @@ python pipeline.py --stages slam floorplan_overlay \
   --input data/floor_1/2025-05-05/run_1/rosbag \
   --output results/ \
   --slam-rate 0.5
-  --output results/
 
-# Full window pipeline on CPU
+# Transitional file-based window pipeline on CPU
 python pipeline.py --stages window_rectify \
   --input /path/to/input.png \
   --output results/ \
   --windows-device cpu
-
-# Full window pipeline on GPU
-python pipeline.py --stages window_rectify \
-  --input /path/to/input.png \
-  --output results/ \
-  --windows-device cuda
 ```
 
 ## CLI Reference
@@ -138,6 +154,7 @@ Window segmentation options:
 - `--windows-prompt`: GroundingDINO prompt
 - `--windows-box-threshold`: GroundingDINO box threshold
 - `--windows-text-threshold`: GroundingDINO text threshold
+- `--sam3-checkpoint`: optional local SAM3 checkpoint path for the transitional file-based pipeline
 
 ## Stages
 
@@ -150,9 +167,14 @@ Window segmentation options:
 | `plot_path` | Draw 2D trajectory image | `trajectory.txt` | `trajectory_path.png` |
 | `floorplan_overlay` | Draw trajectory over floorplan image | `trajectory.txt` (+ optional floorplan image) | `floorplan_overlay.png` |
 | `clean` | Remove output directory for the input run | output folder as input | cleaned host output |
-| `window_dino` | Detect window boxes with GroundingDINO | image file | `grounding_dino/bb.npy` + previews |
-| `window_sam` | Segment windows with SAM3 | image file or `window_dino` output | `windows_masks.npy`, `windows_segmented.png` |
-| `window_rectify` | Undistort the segmented mask | `window_sam` output | `undistorted/mask_undistorted.png` |
+| `window_dino` | Transitional file-based window box detection | image file | `grounding_dino/bb.npy` + previews |
+| `window_sam` | Transitional file-based SAM3 segmentation | image file or `window_dino` output | `windows_masks.npy`, `windows_segmented.png` |
+| `window_rectify` | Transitional file-based mask rectification | `window_sam` output | `undistorted/mask_undistorted.png` |
+
+Planned, not yet implemented:
+
+- `window_detect_ros`: ROS-native subscriber stage for bag-replayed camera topics
+- `window_project`: downstream projection/alignment stage for window detections
 
 ## Automatic Stage Dependencies
 
@@ -193,7 +215,9 @@ For `slam`, the bag must include:
 - `/cam1/image_raw/compressed`
 - `/imu/data_raw`
 
-For `window_*`, pass a single image file as `--input`.
+For the planned ROS-native window stage, the expected source is bag-replayed camera topics, not a dedicated standalone image file.
+
+For the current transitional `window_*` stages, pass a single image file as `--input`.
 
 ## Output Structure and Artifacts
 
@@ -232,6 +256,14 @@ Window segmentation artifacts:
 - `windows_segmented.png`
 - `windows_masks.npy`
 - `undistorted/mask_undistorted.png`
+
+For the planned ROS-native window stage, expected artifacts are:
+
+- per-frame masks
+- per-frame boxes
+- debug overlays
+- optional projected floor points
+- optional ROS-topic-derived summaries
 
 PCA alignment artifacts:
 
@@ -315,7 +347,7 @@ python pipeline.py --stages slam floorplan_overlay \
   --floorplan /path/to/floorplan.png
 ```
 
-### Run only GroundingDINO on an image
+### Transitional: run only GroundingDINO on an image
 
 ```bash
 python pipeline.py --stages window_dino \
@@ -324,7 +356,7 @@ python pipeline.py --stages window_dino \
   --windows-device cpu
 ```
 
-### Run the full window pipeline on GPU
+### Transitional: run the full window pipeline on GPU
 
 ```bash
 python pipeline.py --stages window_rectify \
@@ -333,13 +365,23 @@ python pipeline.py --stages window_rectify \
   --windows-device cuda
 ```
 
-### Force CPU fallback for the full window pipeline
+### Transitional: force CPU fallback for the full window pipeline
 
 ```bash
 python pipeline.py --stages window_rectify \
   --input /path/to/input.png \
   --output results/ \
   --windows-device cpu
+```
+
+### Planned ROS-native window flow
+
+```bash
+# Target direction, not yet implemented as a concrete stage name:
+# replay rosbag -> ROS subscriber node -> window detections/masks in /output
+python pipeline.py --stages window_detect_ros \
+  --input data/floor_1/2025-05-05/run_1/rosbag \
+  --output results/
 ```
 
 ### Clean a run output

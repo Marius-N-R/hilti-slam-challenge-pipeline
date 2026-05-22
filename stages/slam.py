@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import dagger
+from runtime_backend import ExecutionSpec
 
 from .base import Stage, StageConfig
 
@@ -30,12 +30,12 @@ class SlamStage(Stage):
     def output_type(self) -> str:
         return "trajectory"
 
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         """Run OpenVINS SLAM on the input bag."""
 
         # Read the runner script
@@ -54,19 +54,22 @@ for candidate in /input/floorplan.* /input/map.*; do
   fi
 done
 
-python3 /tmp/slam_runner.py {config.slam_rate} {config.slam_timeout} 2>&1 | tee /output/slam.log
+python3 /stage_runtime/slam_runner.py {config.slam_rate} {config.slam_timeout} 2>&1 | tee /output/slam.log
 STATUS=${{PIPESTATUS[0]}}
 echo "$STATUS" > /output/slam.status
 exit 0
 """
 
-        result = (
-            container
-            .with_mounted_directory("/input", input_dir)
-            .with_exec(["/bin/bash", "-c", "mkdir -p /output"])
-            .with_new_file("/tmp/slam_runner.py", contents=runner_script, permissions=0o755)
-            .with_new_file("/tmp/run_slam.sh", contents=wrapper, permissions=0o755)
-            .with_exec(["/bin/bash", "/tmp/run_slam.sh"])
+        return runner.run_stage(
+            container_profile=self.container_profile,
+            input_dir=input_dir,
+            config=config,
+            spec=ExecutionSpec(
+                stage_name=self.name,
+                command=["/bin/bash", "/stage_runtime/run_slam.sh"],
+                files={
+                    "slam_runner.py": runner_script,
+                    "run_slam.sh": wrapper,
+                },
+            ),
         )
-
-        return result.directory("/output")

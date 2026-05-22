@@ -1,6 +1,8 @@
 """Align a SLAM trajectory using PCA-derived axes."""
 
-import dagger
+from pathlib import Path
+
+from runtime_backend import ExecutionSpec
 
 from .base import Stage, StageConfig
 
@@ -24,12 +26,12 @@ class PcaAlignStage(Stage):
     def output_type(self) -> str:
         return "trajectory"
 
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         """Read trajectory.txt, compute PCA alignment, and overwrite trajectory.txt."""
 
         align_script = """#!/usr/bin/env python3
@@ -155,19 +157,22 @@ if __name__ == "__main__":
 set +e
 mkdir -p /output
 cp -a /input/. /output/ 2>/dev/null || true
-python3 /tmp/pca_align.py 2>&1 | tee /output/pca_align.log
+python3 /stage_runtime/pca_align.py 2>&1 | tee /output/pca_align.log
 STATUS=${PIPESTATUS[0]}
 echo "$STATUS" > /output/pca_align.status
 exit 0
 """
 
-        result = (
-            container
-            .with_mounted_directory("/input", input_dir)
-            .with_exec(["/bin/bash", "-c", "mkdir -p /output"])
-            .with_new_file("/tmp/pca_align.py", contents=align_script, permissions=0o755)
-            .with_new_file("/tmp/run_pca_align.sh", contents=wrapper_script, permissions=0o755)
-            .with_exec(["/bin/bash", "/tmp/run_pca_align.sh"])
+        return runner.run_stage(
+            container_profile=self.container_profile,
+            input_dir=input_dir,
+            config=config,
+            spec=ExecutionSpec(
+                stage_name=self.name,
+                command=["/bin/bash", "/stage_runtime/run_pca_align.sh"],
+                files={
+                    "pca_align.py": align_script,
+                    "run_pca_align.sh": wrapper_script,
+                },
+            ),
         )
-
-        return result.directory("/output")

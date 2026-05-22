@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dagger Pipeline for Hilti-Trimble SLAM Challenge 2026
+Hilti-Trimble SLAM Challenge 2026 pipeline.
 
 This pipeline orchestrates the SLAM processing workflow in containers.
 Data files (rosbags) remain outside the container and are mounted at runtime.
@@ -25,201 +25,23 @@ Adding Custom Stages:
 """
 
 import argparse
-import asyncio
-import os
 import shutil
 import sys
-import time
 from glob import glob
 from pathlib import Path
 from typing import List
 
-import dagger
-
+from runtime_backend import ContainerBackend, StageExecutionError
 from stages import registry
 from stages.base import Stage, StageConfig
 
-# =============================================================================
-# Container Building
-# =============================================================================
 
-WORKSPACE_IMAGE = "slam-workspace:latest"
-WORKSPACE_TARBALL = Path(__file__).parent / ".cache" / "slam-workspace.tar"
-DOCKERFILE_PATH = Path(__file__).parent / "Dockerfile.workspace"
-WINDOWS_CPU_IMAGE = "windows-pipeline-cpu:latest"
-WINDOWS_CPU_TARBALL = Path(__file__).parent / ".cache" / "windows-pipeline-cpu.tar"
-WINDOWS_CPU_DOCKERFILE = Path(__file__).parent / "Dockerfile.windows.cpu"
-WINDOWS_GPU_IMAGE = "windows-pipeline-gpu:latest"
-WINDOWS_GPU_TARBALL = Path(__file__).parent / ".cache" / "windows-pipeline-gpu.tar"
-WINDOWS_GPU_DOCKERFILE = Path(__file__).parent / "Dockerfile.windows.gpu"
-
-
-def ensure_workspace_image() -> None:
-    """Ensure the workspace Docker image exists, building if necessary."""
-    import subprocess
-
-    # Check if image exists
-    result = subprocess.run(
-        ["docker", "images", "-q", WORKSPACE_IMAGE],
-        capture_output=True,
-        text=True,
-    )
-    if result.stdout.strip():
-        return  # Image exists
-
-    # Build the image
-    print("[build] Building workspace Docker image (this may take 5-10 minutes)...")
-    if not DOCKERFILE_PATH.exists():
-        raise FileNotFoundError(f"Dockerfile not found: {DOCKERFILE_PATH}")
-
-    result = subprocess.run(
-        ["docker", "build", "-t", WORKSPACE_IMAGE, "-f", str(DOCKERFILE_PATH), "."],
-        cwd=DOCKERFILE_PATH.parent,
-    )
-    if result.returncode != 0:
-        raise RuntimeError("Failed to build workspace Docker image")
-    print("[build] Workspace image built successfully")
-
-
-def ensure_docker_image(image_name: str, dockerfile_path: Path) -> None:
-    """Ensure a Docker image exists, building it if necessary."""
-    import subprocess
-
-    result = subprocess.run(
-        ["docker", "images", "-q", image_name],
-        capture_output=True,
-        text=True,
-    )
-    if result.stdout.strip():
-        return
-
-    print(f"[build] Building Docker image: {image_name}")
-    if not dockerfile_path.exists():
-        raise FileNotFoundError(f"Dockerfile not found: {dockerfile_path}")
-
-    result = subprocess.run(
-        ["docker", "build", "-t", image_name, "-f", str(dockerfile_path), "."],
-        cwd=dockerfile_path.parent,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to build Docker image: {image_name}")
-    print(f"[build] Docker image built successfully: {image_name}")
-
-
-def host_has_nvidia_gpu() -> bool:
-    """Return True if the host appears to have an NVIDIA GPU available."""
-    import subprocess
-
-    result = subprocess.run(
-        ["nvidia-smi", "-L"],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0 and bool(result.stdout.strip())
-
-
-def ensure_workspace_tarball() -> Path:
-    """Ensure the workspace tarball exists, creating from Docker image if needed."""
-    import subprocess
-
-    WORKSPACE_TARBALL.parent.mkdir(parents=True, exist_ok=True)
-
-    if WORKSPACE_TARBALL.exists():
-        return WORKSPACE_TARBALL
-
-    ensure_workspace_image()
-
-    print("[build] Exporting workspace image to tarball...")
-    result = subprocess.run(
-        ["docker", "save", WORKSPACE_IMAGE, "-o", str(WORKSPACE_TARBALL)],
-    )
-    if result.returncode != 0:
-        raise RuntimeError("Failed to export workspace image")
-    print(f"[build] Workspace tarball created: {WORKSPACE_TARBALL}")
-    return WORKSPACE_TARBALL
-
-
-def ensure_image_tarball(image_name: str, tarball_path: Path, dockerfile_path: Path) -> Path:
-    """Ensure a Docker image tarball exists, building/exporting it if needed."""
-    import subprocess
-
-    tarball_path.parent.mkdir(parents=True, exist_ok=True)
-    if tarball_path.exists():
-        return tarball_path
-
-    ensure_docker_image(image_name, dockerfile_path)
-    print(f"[build] Exporting image tarball: {image_name}")
-    result = subprocess.run(["docker", "save", image_name, "-o", str(tarball_path)])
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to export Docker image: {image_name}")
-    print(f"[build] Image tarball created: {tarball_path}")
-    return tarball_path
-
-
-async def load_workspace(client: dagger.Client) -> dagger.Container:
-    """Load the workspace container from tarball.
-
-    This works around a Dagger issue where containers built with many
-    with_exec() calls hang when additional commands are run on them.
-    """
-    tarball_path = ensure_workspace_tarball()
-    tarball = client.host().file(str(tarball_path))
-    return client.container().import_(tarball)
-
-
-async def load_windows_workspace(client: dagger.Client, config: StageConfig) -> dagger.Container:
-    """Load the vendored window-segmentation workspace container."""
-    use_gpu = config.windows_device == "cuda" or (
-        config.windows_device == "auto" and host_has_nvidia_gpu()
-    )
-    if use_gpu:
-        tarball_path = ensure_image_tarball(
-            WINDOWS_GPU_IMAGE,
-            WINDOWS_GPU_TARBALL,
-            WINDOWS_GPU_DOCKERFILE,
-        )
-    else:
-        tarball_path = ensure_image_tarball(
-            WINDOWS_CPU_IMAGE,
-            WINDOWS_CPU_TARBALL,
-            WINDOWS_CPU_DOCKERFILE,
-        )
-
-    tarball = client.host().file(str(tarball_path))
-    scripts_dir = client.host().directory(str(Path(__file__).parent / "stages" / "scripts"))
-
-    container = (
-        client.container()
-        .import_(tarball)
-        .with_mounted_directory("/opt/pipeline_scripts", scripts_dir)
-        .with_workdir("/workspace")
-    )
-
-    hf_token = os.environ.get("HF_TOKEN", "").strip()
-    if hf_token:
-        container = container.with_env_variable("HF_TOKEN", hf_token)
-
-    if config.sam3_checkpoint:
-        checkpoint_path = Path(config.sam3_checkpoint).resolve()
-        container = container.with_mounted_file(
-            "/opt/windows_pipeline/checkpoints/sam3.pt",
-            client.host().file(str(checkpoint_path)),
-        )
-
-    if use_gpu:
-        container = container.experimental_with_all_gp_us()
-    return container
-
-
-# =============================================================================
-# Pipeline Orchestration
-# =============================================================================
-
-async def run_pipeline(
+def run_pipeline(
     stage_names: List[str],
     input_bags: List[str],
     output_dir: str,
     config: StageConfig,
+    container_runtime: str,
 ):
     """Run the pipeline with the given stages and inputs."""
 
@@ -238,180 +60,157 @@ async def run_pipeline(
             print("Use --list-stages to see available stages")
             return 1
 
-    dagger_config = dagger.Config()
+    runner = ContainerBackend(
+        runtime=container_runtime,
+        scripts_dir=Path(__file__).parent / "stages" / "scripts",
+    )
 
-    async with dagger.connection(dagger_config):
-        client = dagger.dag
-        container_cache: dict[str, dagger.Container] = {}
+    # Process each input bag
+    for input_path_str in input_bags:
+        print(f"\n[pipeline] Processing: {input_path_str}")
 
-        # Process each input bag
-        for input_path_str in input_bags:
-            print(f"\n[pipeline] Processing: {input_path_str}")
+        input_path = Path(input_path_str)
+        if not input_path.exists():
+            print(f"[error] Input path does not exist: {input_path_str}")
+            continue
 
-            input_path = Path(input_path_str)
-            if not input_path.exists():
-                print(f"[error] Input path does not exist: {input_path_str}")
-                continue
+        input_root = input_path.parent if input_path.is_file() else input_path
+        input_root = input_root.resolve()
+        input_path = input_path.resolve()
+        config.extra["current_input_path"] = str(input_path)
+        config.extra["current_input_name"] = input_path.name
 
-            input_root = input_path.parent if input_path.is_file() else input_path
-            input_root = input_root.resolve()
-            input_path = input_path.resolve()
-            input_data = client.host().directory(str(input_root))
-            config.extra["current_input_path"] = str(input_path)
-            config.extra["current_input_name"] = input_path.name
+        # Determine output subdirectory based on input path
+        bag_dir = input_root
+        bag_name = input_path.stem if input_path.is_file() else bag_dir.name
+        if bag_name == "rosbag":
+            parent_names: list[str] = []
+            current_parent = bag_dir.parent
+            for _ in range(3):
+                if not current_parent.name:
+                    break
+                parent_names.append(current_parent.name)
+                current_parent = current_parent.parent
 
-            # Determine output subdirectory based on input path
-            bag_dir = input_root
-            bag_name = input_path.stem if input_path.is_file() else bag_dir.name
-            if bag_name == "rosbag":
-                # Use parent directories for naming: floor_X_date_run_Y
-                # Build safely so absolute roots never become part of the name.
-                parent_names: list[str] = []
-                current_parent = bag_dir.parent
-                for _ in range(3):
-                    if not current_parent.name:
-                        break
-                    parent_names.append(current_parent.name)
-                    current_parent = current_parent.parent
+            if parent_names:
+                bag_name = "_".join(reversed(parent_names))
+            else:
+                bag_name = "rosbag"
 
-                if parent_names:
-                    bag_name = "_".join(reversed(parent_names))
-                else:
-                    bag_name = "rosbag"
+        output_subdir = Path(output_dir) / bag_name
 
-            output_subdir = Path(output_dir) / bag_name
+        per_bag_stages = filter_stages_for_input(stage_names, input_path, output_dir)
+        print(f"[pipeline] Stages for this bag: {', '.join(per_bag_stages)}")
+        if per_bag_stages != stage_names:
+            skipped = [name for name in stage_names if name not in per_bag_stages]
+            if skipped:
+                print(f"[pipeline] Skipping stage(s) for this input: {', '.join(skipped)}")
 
-            per_bag_stages = filter_stages_for_input(stage_names, input_path, output_dir)
-            print(f"[pipeline] Stages for this bag: {', '.join(per_bag_stages)}")
-            if per_bag_stages != stage_names:
-                skipped = [name for name in stage_names if name not in per_bag_stages]
-                if skipped:
-                    print(f"[pipeline] Skipping stage(s) for this input: {', '.join(skipped)}")
+        if not per_bag_stages:
+            print("[pipeline] No stages to run after filtering")
+            return 1
 
-            if not per_bag_stages:
-                print("[pipeline] No stages to run after filtering")
+        current_data = input_root
+
+        stages: list[Stage] = []
+        for name in per_bag_stages:
+            stage = registry.get(name)
+            if stage is None:
+                print(f"[error] Unknown stage: {name}")
+                print("Use --list-stages to see available stages")
                 return 1
+            stages.append(stage)
 
-            # Run selected stages in sequence
-            current_data = input_data
-
-            stages: list[Stage] = []
-            for name in per_bag_stages:
-                stage = registry.get(name)
-                if stage is None:
-                    print(f"[error] Unknown stage: {name}")
-                    print("Use --list-stages to see available stages")
-                    return 1
-                stages.append(stage)
-
-            stage_failed = False
-            failed_stage_name = None
-            for stage in stages:
-                print(f"\n[{stage.name}] Running stage: {stage.description}")
-                try:
-                    workspace = container_cache.get(stage.container_profile)
-                    if workspace is None:
-                        print(f"[build] Loading container profile: {stage.container_profile}")
-                        if stage.container_profile == "ros":
-                            workspace = await load_workspace(client)
-                        elif stage.container_profile == "windows":
-                            workspace = await load_windows_workspace(client, config)
-                        else:
-                            raise ValueError(
-                                f"Unsupported container profile: {stage.container_profile}"
-                            )
-                        container_cache[stage.container_profile] = workspace
-                        print(f"[build] Container profile ready: {stage.container_profile}")
-
-                    if stage.name == "clean":
-                        shutil.rmtree(output_subdir, ignore_errors=True)
-                        current_data = input_data
-                        continue
-                    if stage.name == "slam":
-                        trajectory_path = output_subdir / "trajectory.txt"
-                        existing_poses = count_trajectory_poses(trajectory_path)
-                        if existing_poses >= 2:
-                            print(
-                                "[slam] Skipping stage: found existing trajectory "
-                                f"with {existing_poses} poses at {trajectory_path}"
-                            )
-                            copied_floorplans = copy_floorplan_assets(bag_dir, output_subdir)
-                            if copied_floorplans > 0:
-                                print(
-                                    "[slam] Copied floorplan asset(s) from input bag to output: "
-                                    f"{copied_floorplans}"
-                                )
-                            current_data = client.host().directory(str(output_subdir.resolve()))
-                            continue
-                        expected_time = estimate_bag_duration_seconds(bag_dir, config.slam_rate)
-                        current_data = await run_stage_with_progress(
-                            stage,
-                            workspace,
-                            current_data,
-                            config,
-                            expected_time,
+        stage_failed = False
+        failed_stage_name = None
+        for stage in stages:
+            print(f"\n[{stage.name}] Running stage: {stage.description}")
+            print(f"[build] Loading container profile: {stage.container_profile} ({container_runtime})")
+            try:
+                if stage.name == "clean":
+                    shutil.rmtree(output_subdir, ignore_errors=True)
+                    current_data = input_root
+                    continue
+                if stage.name == "slam":
+                    trajectory_path = output_subdir / "trajectory.txt"
+                    existing_poses = count_trajectory_poses(trajectory_path)
+                    if existing_poses >= 2:
+                        print(
+                            "[slam] Skipping stage: found existing trajectory "
+                            f"with {existing_poses} poses at {trajectory_path}"
                         )
-                    else:
-                        current_data = await stage.run(workspace, current_data, config)
-                    await current_data.id()
-                    status = await read_stage_status(current_data, stage.name)
-                    if status is not None and status != 0:
-                        print(f"[{stage.name}] ERROR: stage exited with status {status}")
-                        await print_stage_log_tail(current_data, stage.name)
-                        stage_failed = True
-                        failed_stage_name = stage.name
-                        break
-                except Exception as e:
-                    print(f"[{stage.name}] ERROR: {e}")
+                        copied_floorplans = copy_floorplan_assets(bag_dir, output_subdir)
+                        if copied_floorplans > 0:
+                            print(
+                                "[slam] Copied floorplan asset(s) from input bag to output: "
+                                f"{copied_floorplans}"
+                            )
+                        current_data = output_subdir.resolve()
+                        continue
+
+                current_data = stage.run(runner, current_data, config)
+                status = read_stage_status(current_data, stage.name)
+                if status is not None and status != 0:
+                    print(f"[{stage.name}] ERROR: stage exited with status {status}")
+                    print_stage_log_tail(current_data, stage.name)
                     stage_failed = True
                     failed_stage_name = stage.name
                     break
+            except StageExecutionError as exc:
+                current_data = exc.output_dir
+                print(f"[{stage.name}] ERROR: stage exited with status {exc.returncode}")
+                print_stage_log_tail(current_data, stage.name)
+                stage_failed = True
+                failed_stage_name = stage.name
+                break
+            except Exception as e:
+                print(f"[{stage.name}] ERROR: {e}")
+                stage_failed = True
+                failed_stage_name = stage.name
+                break
 
-            # Export results to host
-            if per_bag_stages == ["clean"]:
-                print(f"\n[pipeline] Outputs removed: {output_subdir}")
-                continue
+        if per_bag_stages == ["clean"]:
+            print(f"\n[pipeline] Outputs removed: {output_subdir}")
+            continue
 
-            if stage_failed:
-                if failed_stage_name is not None:
-                    failed_dir = output_subdir / "_failed" / failed_stage_name
-                    if failed_dir.exists():
-                        shutil.rmtree(failed_dir)
-                    failed_dir.mkdir(parents=True, exist_ok=True)
-                    try:
-                        await current_data.export(str(failed_dir))
-                        print(f"[pipeline] Exported failed stage artifacts to: {failed_dir}")
-                        if failed_stage_name == "slam":
-                            mirror_slam_artifacts(
-                                source_dir=failed_dir,
-                                output_subdir=output_subdir,
-                                bag_name=bag_name,
-                            )
-                    except Exception as export_error:
-                        print(f"[pipeline] Failed to export failed stage artifacts: {export_error}")
-                print(
-                    "[pipeline] Skipping export because a stage failed for: "
-                    f"{input_path_str}"
-                )
-                continue
+        if stage_failed:
+            if failed_stage_name is not None:
+                failed_dir = output_subdir / "_failed" / failed_stage_name
+                if failed_dir.exists():
+                    shutil.rmtree(failed_dir)
+                failed_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    copy_tree(current_data, failed_dir)
+                    print(f"[pipeline] Exported failed stage artifacts to: {failed_dir}")
+                    if failed_stage_name == "slam":
+                        mirror_slam_artifacts(
+                            source_dir=failed_dir,
+                            output_subdir=output_subdir,
+                            bag_name=bag_name,
+                        )
+                except Exception as export_error:
+                    print(f"[pipeline] Failed to export failed stage artifacts: {export_error}")
+            print(
+                "[pipeline] Skipping export because a stage failed for: "
+                f"{input_path_str}"
+            )
+            continue
 
-            output_subdir.mkdir(parents=True, exist_ok=True)
-            await current_data.export(str(output_subdir))
-            print(f"\n[pipeline] Results exported to: {output_subdir}")
+        output_subdir.mkdir(parents=True, exist_ok=True)
+        copy_tree(current_data, output_subdir)
+        print(f"\n[pipeline] Results exported to: {output_subdir}")
 
-            if "slam" in per_bag_stages:
-                mirror_slam_artifacts(
-                    source_dir=output_subdir,
-                    output_subdir=output_subdir,
-                    bag_name=bag_name,
-                )
+        if "slam" in per_bag_stages:
+            mirror_slam_artifacts(
+                source_dir=output_subdir,
+                output_subdir=output_subdir,
+                bag_name=bag_name,
+            )
 
-        # Force exit BEFORE the async with block tries to close
-        # This avoids hanging on Dagger's connection cleanup
-        print("\n" + "=" * 60)
-        print("Pipeline complete!")
-        print("=" * 60)
-        os._exit(0)
+    print("\n" + "=" * 60)
+    print("Pipeline complete!")
+    print("=" * 60)
+    return 0
 
 
 def mirror_slam_artifacts(source_dir: Path, output_subdir: Path, bag_name: str) -> None:
@@ -512,75 +311,11 @@ def copy_floorplan_assets(input_dir: Path, output_dir: Path) -> int:
     return copied
 
 
-def estimate_bag_duration_seconds(bag_dir: Path, rate: float) -> float | None:
-    """Estimate bag playback time from metadata.yaml, adjusted by rate."""
-    metadata_path = bag_dir / "metadata.yaml"
-    if not metadata_path.exists():
-        return None
-    try:
-        with metadata_path.open() as f:
-            for line in f:
-                stripped = line.strip()
-                if stripped.startswith("nanoseconds:"):
-                    value = stripped.split(":", 1)[1].strip()
-                    nanoseconds = int(value)
-                    if rate <= 0:
-                        return None
-                    return nanoseconds / 1e9 / rate
-    except Exception:
-        return None
-    return None
-
-
-async def run_stage_with_progress(
-    stage,
-    container: dagger.Container,
-    input_dir: dagger.Directory,
-    config: StageConfig,
-    expected_time: float | None,
-) -> dagger.Directory:
-    """Run a stage while showing a simple progress bar."""
-    if not expected_time:
-        return await stage.run(container, input_dir, config)
-
-    bar_width = 30
-    start = time.time()
-    output_dir = await stage.run(container, input_dir, config)
-    task = asyncio.create_task(output_dir.id())
-
-    while not task.done():
-        elapsed = time.time() - start
-        pct = min(100.0, (elapsed / expected_time) * 100.0)
-        filled = int((pct / 100.0) * bar_width)
-        bar = f"{'#' * filled}{'-' * (bar_width - filled)}"
-        line = (
-            f"[slam] Progress: [{bar}] {pct:5.1f}% "
-            f"({elapsed:5.0f}s/{expected_time:5.0f}s)"
-        )
-        sys.stdout.write(f"\r{line}")
-        sys.stdout.flush()
-        await asyncio.sleep(1)
-
-    elapsed = time.time() - start
-    pct = min(100.0, (elapsed / expected_time) * 100.0)
-    filled = int((pct / 100.0) * bar_width)
-    bar = f"{'#' * filled}{'-' * (bar_width - filled)}"
-    line = (
-        f"[slam] Progress: [{bar}] {pct:5.1f}% "
-        f"({elapsed:5.0f}s/{expected_time:5.0f}s)"
-    )
-    sys.stdout.write(f"\r{line}\n")
-    sys.stdout.flush()
-
-    await task
-    return output_dir
-
-
-async def read_stage_status(output_dir: dagger.Directory, stage_name: str) -> int | None:
+def read_stage_status(output_dir: Path, stage_name: str) -> int | None:
     """Return non-zero stage status if a status file is present."""
-    status_path = f"{stage_name}.status"
+    status_path = output_dir / f"{stage_name}.status"
     try:
-        contents = await output_dir.file(status_path).contents()
+        contents = status_path.read_text(encoding="utf-8")
     except Exception:
         return None
     try:
@@ -589,11 +324,11 @@ async def read_stage_status(output_dir: dagger.Directory, stage_name: str) -> in
         return None
 
 
-async def print_stage_log_tail(output_dir: dagger.Directory, stage_name: str) -> None:
+def print_stage_log_tail(output_dir: Path, stage_name: str) -> None:
     """Print the tail of a stage log if it exists."""
-    log_path = f"{stage_name}.log"
+    log_path = output_dir / f"{stage_name}.log"
     try:
-        contents = await output_dir.file(log_path).contents()
+        contents = log_path.read_text(encoding="utf-8")
     except Exception:
         return
     lines = contents.splitlines()
@@ -604,6 +339,13 @@ async def print_stage_log_tail(output_dir: dagger.Directory, stage_name: str) ->
             print(line)
 
 
+def copy_tree(source_dir: Path, target_dir: Path) -> None:
+    """Replace target directory contents with a copy of source_dir."""
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    shutil.copytree(source_dir, target_dir)
+
+
 # =============================================================================
 # CLI Entry Point
 # =============================================================================
@@ -611,7 +353,7 @@ async def print_stage_log_tail(output_dir: dagger.Directory, stage_name: str) ->
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Dagger Pipeline for Hilti-Trimble SLAM Challenge 2026",
+        description="Hilti-Trimble SLAM Challenge 2026 pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -656,6 +398,13 @@ Adding Custom Stages:
         "--output", "-o",
         default="./output",
         help="Output directory (default: ./output)"
+    )
+
+    parser.add_argument(
+        "--container-runtime",
+        default="docker",
+        choices=["docker", "apptainer"],
+        help="Container runtime backend to use (default: docker)",
     )
 
     parser.add_argument(
@@ -897,12 +646,13 @@ def main():
     if expanded_stages != args.stages:
         print(f"[pipeline] Auto-expanded stages: {', '.join(expanded_stages)}")
 
-    return asyncio.run(run_pipeline(
+    return run_pipeline(
         stage_names=expanded_stages,
         input_bags=input_bags,
         output_dir=args.output,
         config=config,
-    ))
+        container_runtime=args.container_runtime,
+    )
 
 
 if __name__ == "__main__":

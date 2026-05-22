@@ -3,7 +3,7 @@
 import base64
 from pathlib import Path
 
-import dagger
+from runtime_backend import ExecutionSpec
 
 from .base import Stage, StageConfig
 
@@ -27,12 +27,12 @@ class FloorplanOverlayStage(Stage):
     def output_type(self) -> str:
         return "directory"
 
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         """Render floorplan overlay image.
 
         Expected input: a directory containing `trajectory.txt`.
@@ -76,7 +76,7 @@ FLOORPLAN_EXT = {floorplan_ext!r}
 def load_floorplan() -> tuple[np.ndarray, str]:
     candidates: list[str] = []
 
-    cli_b64 = Path("/tmp/floorplan_cli.b64")
+    cli_b64 = Path("/stage_runtime/floorplan_cli.b64")
     if cli_b64.exists():
         try:
             payload = cli_b64.read_text(encoding="utf-8").strip()
@@ -206,33 +206,26 @@ if __name__ == "__main__":
 set +e
 mkdir -p /output
 cp -a /input/. /output/ 2>/dev/null || true
-python3 /tmp/render_floorplan_overlay.py 2>&1 | tee /output/floorplan_overlay.log
+python3 /stage_runtime/render_floorplan_overlay.py 2>&1 | tee /output/floorplan_overlay.log
 STATUS=${PIPESTATUS[0]}
 echo "$STATUS" > /output/floorplan_overlay.status
 exit 0
 """
 
-        result = (
-            container
-            .with_mounted_directory("/input", input_dir)
-            .with_exec(["/bin/bash", "-c", "mkdir -p /output"])
-            .with_new_file(
-                "/tmp/render_floorplan_overlay.py",
-                contents=render_script,
-                permissions=0o755,
-            )
-        )
-
+        files = {
+            "render_floorplan_overlay.py": render_script,
+            "run_floorplan_overlay.sh": wrapper_script,
+        }
         if floorplan_payload:
-            result = result.with_new_file(
-                "/tmp/floorplan_cli.b64",
-                contents=floorplan_payload,
-            )
+            files["floorplan_cli.b64"] = floorplan_payload
 
-        result = (
-            result
-            .with_new_file("/tmp/run_floorplan_overlay.sh", contents=wrapper_script, permissions=0o755)
-            .with_exec(["/bin/bash", "/tmp/run_floorplan_overlay.sh"])
+        return runner.run_stage(
+            container_profile=self.container_profile,
+            input_dir=input_dir,
+            config=config,
+            spec=ExecutionSpec(
+                stage_name=self.name,
+                command=["/bin/bash", "/stage_runtime/run_floorplan_overlay.sh"],
+                files=files,
+            ),
         )
-
-        return result.directory("/output")

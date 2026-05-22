@@ -1,6 +1,8 @@
 """Render a SLAM trajectory as a 2D path image."""
 
-import dagger
+from pathlib import Path
+
+from runtime_backend import ExecutionSpec
 
 from .base import Stage, StageConfig
 
@@ -24,12 +26,12 @@ class PlotPathStage(Stage):
     def output_type(self) -> str:
         return "directory"
 
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         """Render a 2D top-down path from trajectory.txt."""
 
         render_script = """#!/usr/bin/env python3
@@ -111,19 +113,22 @@ print(f"[plot_path] Wrote {out_path}")
 set +e
 mkdir -p /output
 cp -a /input/. /output/ 2>/dev/null || true
-python3 /tmp/render_path.py 2>&1 | tee /output/plot_path.log
+python3 /stage_runtime/render_path.py 2>&1 | tee /output/plot_path.log
 STATUS=${PIPESTATUS[0]}
 echo "$STATUS" > /output/plot_path.status
 exit 0
 """
 
-        result = (
-            container
-            .with_mounted_directory("/input", input_dir)
-            .with_exec(["/bin/bash", "-c", "mkdir -p /output"])
-            .with_new_file("/tmp/render_path.py", contents=render_script, permissions=0o755)
-            .with_new_file("/tmp/run_plot_path.sh", contents=wrapper_script, permissions=0o755)
-            .with_exec(["/bin/bash", "/tmp/run_plot_path.sh"])
+        return runner.run_stage(
+            container_profile=self.container_profile,
+            input_dir=input_dir,
+            config=config,
+            spec=ExecutionSpec(
+                stage_name=self.name,
+                command=["/bin/bash", "/stage_runtime/run_plot_path.sh"],
+                files={
+                    "render_path.py": render_script,
+                    "run_plot_path.sh": wrapper_script,
+                },
+            ),
         )
-
-        return result.directory("/output")

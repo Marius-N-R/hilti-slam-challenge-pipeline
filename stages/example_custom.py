@@ -12,7 +12,10 @@ To add a new stage:
 4. Run with: python pipeline.py --stages my_stage --input <bag>
 """
 
-import dagger
+from pathlib import Path
+
+from runtime_backend import ExecutionSpec
+
 from .base import Stage, StageConfig
 
 
@@ -49,17 +52,17 @@ class ExampleStage(Stage):
         """What this stage produces."""
         return "directory"
 
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         """
         Execute the stage processing.
 
         Args:
-            container: Dagger container with ROS2 workspace built.
+            runner: Container runtime backend.
             input_dir: Input directory (from previous stage or host).
             config: Stage configuration options.
 
@@ -79,14 +82,25 @@ echo "example_stage_completed" > /output/stage_marker.txt && \\
 echo "Processing complete!"
 """
 
-        result = (
-            container
-            .with_mounted_directory("/input", input_dir)
-            .with_exec(["/bin/bash", "-c", "mkdir -p /output"])
-            .with_exec(["/bin/bash", "-c", process_cmd])
-        )
+        wrapper_script = f"""#!/bin/bash
+set +e
+mkdir -p /output
+/bin/bash -c {process_cmd!r} 2>&1 | tee /output/{self.name}.log
+STATUS=${{PIPESTATUS[0]}}
+echo "$STATUS" > /output/{self.name}.status
+exit 0
+"""
 
-        return result.directory("/output")
+        return runner.run_stage(
+            container_profile=self.container_profile,
+            input_dir=input_dir,
+            config=config,
+            spec=ExecutionSpec(
+                stage_name=self.name,
+                command=["/bin/bash", f"/stage_runtime/{self.name}_wrapper.sh"],
+                files={f"{self.name}_wrapper.sh": wrapper_script},
+            ),
+        )
 
 
 # Uncomment the following to auto-register when importing this module:

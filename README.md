@@ -1,8 +1,8 @@
-# Hilti-Trimble SLAM Pipeline (Dagger)
+# Hilti-Trimble SLAM Pipeline
 
 Containerized ROS2 pipeline for the Hilti-Trimble SLAM Challenge 2026.
 
-This project runs stage-based processing on ROS2 bag data using Dagger + Docker, while keeping your input bags on the host filesystem.
+This project runs stage-based processing on ROS2 bag data using a native Python execution backend with Docker or Apptainer, while keeping input bags on the host filesystem.
 
 ## What This Pipeline Does
 
@@ -38,11 +38,12 @@ third_party/windows_pipeline/ # Vendored GroundingDINO / SAM3 / py360convert
 ## Requirements
 
 - Python `>=3.10`
-- Docker (daemon running)
+- Docker for image builds and Docker runtime execution
+- Apptainer for Apptainer runtime execution (`--container-runtime apptainer`)
 - Network access for first workspace image build (clones challenge repos)
 - Network access for the first `window_dino` run (downloads the GroundingDINO checkpoint)
 - Recommended local environment: Conda env `3dvis`
-- For `window_*` GPU runs: NVIDIA GPU, `nvidia-smi`, and Docker GPU runtime support
+- For `window_*` GPU runs: NVIDIA GPU, `nvidia-smi`, and runtime GPU support (`docker --gpus all` or `apptainer --nv`)
 
 ## Window Detection Direction
 
@@ -77,9 +78,9 @@ pip install -e ".[dev]"
 
 ### First-Run Note
 
-On first run, the pipeline builds `slam-workspace:latest` from `Dockerfile.workspace`, then exports it to `.cache/slam-workspace.tar`. This can take several minutes.
+On first run, the pipeline builds `slam-workspace:latest` from `Dockerfile.workspace`. Docker runs use that image directly. Apptainer runs also build a cached `.sif` image from the Docker image, which can take several additional minutes.
 
-The first `window_*` run also builds either `windows-pipeline-cpu:latest` or `windows-pipeline-gpu:latest` and exports it to `.cache/`.
+The first `window_*` run also builds either `windows-pipeline-cpu:latest` or `windows-pipeline-gpu:latest`. Apptainer runs additionally cache matching `.sif` images under `.cache/`.
 
 For the transitional `window_*` stages, the first window-image build downloads the upstream GroundingDINO checkpoint into the image. The runtime also re-downloads it if the file is missing.
 
@@ -133,6 +134,7 @@ Key arguments:
 - `--stages/-s`: ordered stage list to run
 - `--input/-i`: one or more bag paths (supports quoted globs)
 - `--output/-o`: output root directory
+- `--container-runtime {docker,apptainer}`: execution backend
 - `--list-stages/-l`: print stages and exit
 - `--verbose/-v`: extra console output
 
@@ -420,4 +422,4 @@ pytest
 
 - Input `data/` is mounted at runtime; avoid writing processing outputs into `data/`.
 - SLAM artifacts are mirrored to the selected output and to `results/` for convenience.
-- The pipeline intentionally uses a fast process exit after final export because Dagger disconnect can hang on this machine during teardown.
+- Docker remains the image build source of truth because the repo currently ships Dockerfiles, while Apptainer runtime uses cached `.sif` images derived from those builds.

@@ -1,6 +1,6 @@
 """Clean stage - removes pipeline outputs on the host."""
 
-import dagger
+from pathlib import Path
 
 from .base import Stage, StageConfig
 
@@ -24,11 +24,11 @@ class CleanStage(Stage):
     def output_type(self) -> str:
         return "directory"
 
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         """No-op in container; host cleanup is handled in pipeline."""
         return input_dir

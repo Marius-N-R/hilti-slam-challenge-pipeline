@@ -2,9 +2,8 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-import dagger
 
 
 @dataclass
@@ -70,17 +69,17 @@ class Stage(ABC):
         return "rosbag"
 
     @abstractmethod
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner: Any,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         """
         Execute this stage.
 
         Args:
-            container: The Dagger container with ROS2 and tools installed.
+            runner: The selected container runtime backend.
             input_dir: Input directory mounted from host.
             config: Stage configuration.
 

@@ -1,3 +1,1 @@
-# Core dependencies for the Dagger pipeline
-dagger-io>=0.9.0
-anyio>=4.0.0
+# The pipeline currently uses only Python stdlib modules at runtime.

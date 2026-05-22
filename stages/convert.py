@@ -1,6 +1,9 @@
 """Format conversion stage - converts ROS2 bags to EuRoC format."""
 
-import dagger
+from pathlib import Path
+
+from runtime_backend import ExecutionSpec
+
 from .base import Stage, StageConfig
 
 
@@ -23,12 +26,12 @@ class ConvertStage(Stage):
     def output_type(self) -> str:
         return "euroc"
 
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         """Convert ROS2 bag to EuRoC format."""
 
         script_path = (
@@ -52,11 +55,21 @@ python3 {script_path} \\
     --imu-topic {imu_topic}
 """
 
-        result = (
-            container
-            .with_mounted_directory("/input", input_dir)
-            .with_exec(["/bin/bash", "-c", "mkdir -p /output"])
-            .with_exec(["/bin/bash", "-c", convert_cmd])
+        wrapper_script = f"""#!/bin/bash
+set +e
+mkdir -p /output
+/bin/bash -c {convert_cmd!r} 2>&1 | tee /output/{self.name}.log
+STATUS=${{PIPESTATUS[0]}}
+echo "$STATUS" > /output/{self.name}.status
+exit 0
+"""
+        return runner.run_stage(
+            container_profile=self.container_profile,
+            input_dir=input_dir,
+            config=config,
+            spec=ExecutionSpec(
+                stage_name=self.name,
+                command=["/bin/bash", f"/stage_runtime/{self.name}_wrapper.sh"],
+                files={f"{self.name}_wrapper.sh": wrapper_script},
+            ),
         )
-
-        return result.directory("/output")

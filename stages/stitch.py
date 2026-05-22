@@ -1,6 +1,9 @@
 """Image stitching stage - converts dual fisheye to 360 equirectangular."""
 
-import dagger
+from pathlib import Path
+
+from runtime_backend import ExecutionSpec
+
 from .base import Stage, StageConfig
 
 
@@ -23,12 +26,12 @@ class StitchStage(Stage):
     def output_type(self) -> str:
         return "rosbag"
 
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         """Run image stitching on the input bag."""
 
         # Prepare torch args; verify availability inside the container at runtime.
@@ -102,7 +105,7 @@ ls -la /output/rosbag_pano
         wrapper_script = """#!/bin/bash
 set +e
 mkdir -p /output
-/bin/bash /tmp/run_stitch.sh 2>&1 | tee /output/stitch.log
+/bin/bash /stage_runtime/run_stitch.sh 2>&1 | tee /output/stitch.log
 STATUS=${PIPESTATUS[0]}
 echo "$STATUS" > /output/stitch.status
 if [ $STATUS -ne 0 ]; then
@@ -111,13 +114,16 @@ fi
 exit 0
 """
 
-        result = (
-            container
-            .with_mounted_directory("/input", input_dir)
-            .with_exec(["/bin/bash", "-c", "mkdir -p /output"])
-            .with_new_file("/tmp/run_stitch.sh", contents=stitch_cmd, permissions=0o755)
-            .with_new_file("/tmp/run_stitch_wrapper.sh", contents=wrapper_script, permissions=0o755)
-            .with_exec(["/bin/bash", "/tmp/run_stitch_wrapper.sh"])
+        return runner.run_stage(
+            container_profile=self.container_profile,
+            input_dir=input_dir,
+            config=config,
+            spec=ExecutionSpec(
+                stage_name=self.name,
+                command=["/bin/bash", "/stage_runtime/run_stitch_wrapper.sh"],
+                files={
+                    "run_stitch.sh": stitch_cmd,
+                    "run_stitch_wrapper.sh": wrapper_script,
+                },
+            ),
         )
-
-        return result.directory("/output")

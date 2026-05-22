@@ -1,8 +1,9 @@
 """SAM3-based window segmentation stage."""
 
 import json
+from pathlib import Path
 
-import dagger
+from runtime_backend import ExecutionSpec
 
 from .base import Stage, StageConfig
 
@@ -28,12 +29,12 @@ class WindowsSamStage(Stage):
     def output_type(self) -> str:
         return "directory"
 
-    async def run(
+    def run(
         self,
-        container: dagger.Container,
-        input_dir: dagger.Directory,
+        runner,
+        input_dir: Path,
         config: StageConfig,
-    ) -> dagger.Directory:
+    ) -> Path:
         image_name = str(config.extra["current_input_name"])
         runtime_args = json.dumps(
             {
@@ -55,22 +56,23 @@ python /opt/pipeline_scripts/windows/run_sam3.py '{runtime_args}'
 
         wrapper_cmd = f"""#!/bin/bash
 set +e
-/bin/bash /tmp/{self.name}.sh 2>&1 | tee /output/{self.name}.log
+/bin/bash /stage_runtime/{self.name}.sh 2>&1 | tee /output/{self.name}.log
 STATUS=${{PIPESTATUS[0]}}
 echo "$STATUS" > /output/{self.name}.status
 exit 0
 """
 
-        result = (
-            container
-            .with_mounted_directory("/input", input_dir)
-            .with_exec(["/bin/bash", "-c", "mkdir -p /output"])
-            .with_new_file(f"/tmp/{self.name}.sh", contents=stage_cmd, permissions=0o755)
-            .with_new_file(
-                f"/tmp/{self.name}_wrapper.sh",
-                contents=wrapper_cmd,
-                permissions=0o755,
-            )
-            .with_exec(["/bin/bash", f"/tmp/{self.name}_wrapper.sh"])
+        return runner.run_stage(
+            container_profile=self.container_profile,
+            input_dir=input_dir,
+            config=config,
+            spec=ExecutionSpec(
+                stage_name=self.name,
+                command=["/bin/bash", f"/stage_runtime/{self.name}_wrapper.sh"],
+                files={
+                    f"{self.name}.sh": stage_cmd,
+                    f"{self.name}_wrapper.sh": wrapper_cmd,
+                },
+                use_gpu=config.windows_device == "cuda",
+            ),
         )
-        return result.directory("/output")

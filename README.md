@@ -83,6 +83,16 @@ On first run, the pipeline builds `slam-workspace:latest` from `Dockerfile.works
 
 If Docker is not available, Apptainer mode falls back to building the `.sif` image from native Apptainer definition files shipped in `container_defs/`.
 
+On HPC systems where unprivileged `apptainer build` is restricted, you can skip local builds entirely by pointing the pipeline at prebuilt images:
+
+```bash
+export PIPELINE_APPTAINER_ROS_IMAGE=/path/to/slam-workspace.sif
+export PIPELINE_APPTAINER_WINDOWS_CPU_IMAGE=/path/to/windows-pipeline-cpu.sif
+export PIPELINE_APPTAINER_WINDOWS_GPU_IMAGE=/path/to/windows-pipeline-gpu.sif
+```
+
+Only set the image variables you actually need for the stages you are running.
+
 The first `window_*` run also builds either `windows-pipeline-cpu:latest` or `windows-pipeline-gpu:latest`. Apptainer runs additionally cache matching `.sif` images under `.cache/`.
 
 For the transitional `window_*` stages, the first window-image build downloads the upstream GroundingDINO checkpoint into the image. The runtime also re-downloads it if the file is missing.

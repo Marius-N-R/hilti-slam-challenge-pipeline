@@ -51,6 +51,12 @@ PROFILE_IMAGES = {
     ),
 }
 
+APPTAINER_IMAGE_OVERRIDE_ENV = {
+    "ros": "PIPELINE_APPTAINER_ROS_IMAGE",
+    "windows_cpu": "PIPELINE_APPTAINER_WINDOWS_CPU_IMAGE",
+    "windows_gpu": "PIPELINE_APPTAINER_WINDOWS_GPU_IMAGE",
+}
+
 
 class StageExecutionError(RuntimeError):
     """Execution failure with access to stage output."""
@@ -117,6 +123,9 @@ class ContainerBackend:
             self._ensure_docker_image(profile)
             return profile.docker_image
         if self.runtime == "apptainer":
+            override = self._apptainer_image_override(profile)
+            if override is not None:
+                return override
             return self._ensure_apptainer_image(profile)
         raise ValueError(f"Unsupported container runtime: {self.runtime}")
 
@@ -317,3 +326,21 @@ class ContainerBackend:
             if shutil.which(candidate):
                 return candidate
         return None
+
+    def _apptainer_image_override(self, profile: ProfileImage) -> Path | None:
+        env_name = APPTAINER_IMAGE_OVERRIDE_ENV.get(profile.profile)
+        if not env_name:
+            return None
+
+        raw_value = os.environ.get(env_name, "").strip()
+        if not raw_value:
+            return None
+
+        override_path = Path(raw_value).expanduser().resolve()
+        if not override_path.exists():
+            raise FileNotFoundError(
+                f"{env_name} points to a missing Apptainer image: {override_path}"
+            )
+
+        print(f"[build] Using prebuilt Apptainer image from {env_name}: {override_path}")
+        return override_path

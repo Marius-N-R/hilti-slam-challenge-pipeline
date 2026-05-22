@@ -42,7 +42,7 @@ third_party/windows_pipeline/ # Vendored GroundingDINO / SAM3 / py360convert
 - Apptainer or Singularity for `--container-runtime apptainer`
 - Network access for first workspace image build (clones challenge repos)
 - Network access for the first `window_dino` run (downloads the GroundingDINO checkpoint)
-- Recommended local environment: Conda env `3dvis`
+- Recommended local environment: Python virtual environment (`venv`)
 - For `window_*` GPU runs: NVIDIA GPU, `nvidia-smi`, and runtime GPU support (`docker --gpus all` or `apptainer/singularity --nv`)
 
 ## Window Detection Direction
@@ -67,7 +67,8 @@ The current `window_dino`, `window_sam`, and `window_rectify` stages are a trans
 
 ```bash
 # Optional but recommended
-conda activate 3dvis
+python -m venv .venv
+source .venv/bin/activate
 
 # Runtime dependencies
 pip install -r requirements.txt

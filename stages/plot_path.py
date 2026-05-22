@@ -112,7 +112,7 @@ print(f"[plot_path] Wrote {out_path}")
         wrapper_script = """#!/bin/bash
 set +e
 mkdir -p /output
-cp -a /input/. /output/ 2>/dev/null || true
+cp -r /input/. /output/ 2>/dev/null || true
 python3 /stage_runtime/render_path.py 2>&1 | tee /output/plot_path.log
 STATUS=${PIPESTATUS[0]}
 echo "$STATUS" > /output/plot_path.status

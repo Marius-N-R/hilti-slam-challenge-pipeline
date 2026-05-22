@@ -156,7 +156,7 @@ if __name__ == "__main__":
         wrapper_script = """#!/bin/bash
 set +e
 mkdir -p /output
-cp -a /input/. /output/ 2>/dev/null || true
+cp -r /input/. /output/ 2>/dev/null || true
 python3 /stage_runtime/pca_align.py 2>&1 | tee /output/pca_align.log
 STATUS=${PIPESTATUS[0]}
 echo "$STATUS" > /output/pca_align.status

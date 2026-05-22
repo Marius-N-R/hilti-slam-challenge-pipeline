@@ -49,7 +49,7 @@ class WindowsDinoStage(Stage):
         stage_cmd = f"""#!/bin/bash
 set -euo pipefail
 mkdir -p /output
-cp -a /input/. /output/
+cp -r /input/. /output/
 export WINDOWS_PIPELINE_ROOT=/opt/windows_pipeline
 export PYTHONPATH=/opt/windows_pipeline/py360convert:${{PYTHONPATH:-}}
 python /opt/pipeline_scripts/windows/run_grounding_dino.py '{runtime_args}'

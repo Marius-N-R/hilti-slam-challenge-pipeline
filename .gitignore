@@ -48,3 +48,6 @@ data/
 
 # Vendored model checkpoints downloaded at runtime
 third_party/windows_pipeline/GroundingDINO/weights/
+windows-pipeline-gpu.sif
+.gitignore
+windows-pipeline-gpu.tar

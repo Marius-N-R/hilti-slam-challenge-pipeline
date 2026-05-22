@@ -6,8 +6,10 @@ import os
 import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Iterator
 
 ROOT = Path(__file__).parent.resolve()
 CACHE_DIR = ROOT / ".cache"
@@ -216,22 +218,42 @@ class ContainerBackend:
     def _ensure_apptainer_image(self, profile: ProfileImage) -> Path:
         if self.apptainer_bin is None:
             raise RuntimeError("Apptainer/Singularity runtime requested but no binary was found")
-        archive_path = self._ensure_docker_archive(profile)
         profile.apptainer_image.parent.mkdir(parents=True, exist_ok=True)
         if profile.apptainer_image.exists():
             return profile.apptainer_image
 
         print(f"[build] Building Apptainer image: {profile.apptainer_image.name}")
-        result = subprocess.run(
-            [
+        docker_bin = shutil.which("docker")
+        if docker_bin:
+            archive_path = self._ensure_docker_archive(profile)
+            command = [
                 self.apptainer_bin,
                 "build",
                 "--force",
                 str(profile.apptainer_image),
                 f"docker-archive://{archive_path}",
-            ],
-            check=False,
-        )
+            ]
+            cwd = ROOT
+        else:
+            print("[build] Docker not found; building Apptainer image directly from Dockerfile context")
+            with self._apptainer_build_context(profile) as build_context:
+                command = [
+                    self.apptainer_bin,
+                    "build",
+                    "--force",
+                    str(profile.apptainer_image),
+                    "dockerfile:.",
+                ]
+                cwd = build_context
+                result = subprocess.run(command, cwd=cwd, check=False)
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"Failed to build Apptainer image from Dockerfile: {profile.apptainer_image}"
+                    )
+                print(f"[build] Apptainer image built successfully: {profile.apptainer_image}")
+                return profile.apptainer_image
+
+        result = subprocess.run(command, cwd=cwd, check=False)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to build Apptainer image: {profile.apptainer_image}")
         print(f"[build] Apptainer image built successfully: {profile.apptainer_image}")
@@ -294,3 +316,18 @@ class ContainerBackend:
             if shutil.which(candidate):
                 return candidate
         return None
+
+    @contextmanager
+    def _apptainer_build_context(self, profile: ProfileImage) -> Iterator[Path]:
+        context_dir = Path(tempfile.mkdtemp(prefix=f"{profile.profile}-build-", dir=self.cache_dir))
+        try:
+            dockerfile_link = context_dir / "Dockerfile"
+            dockerfile_link.symlink_to(profile.dockerfile.resolve())
+
+            third_party_dir = ROOT / "third_party"
+            if third_party_dir.exists():
+                (context_dir / "third_party").symlink_to(third_party_dir.resolve(), target_is_directory=True)
+
+            yield context_dir
+        finally:
+            shutil.rmtree(context_dir, ignore_errors=True)

@@ -38,7 +38,7 @@ third_party/windows_pipeline/ # Vendored GroundingDINO / SAM3 / py360convert
 ## Requirements
 
 - Python `>=3.10`
-- Docker for image builds and Docker runtime execution
+- Docker for Docker runtime execution, and optionally for faster Apptainer image conversion
 - Apptainer or Singularity for `--container-runtime apptainer`
 - Network access for first workspace image build (clones challenge repos)
 - Network access for the first `window_dino` run (downloads the GroundingDINO checkpoint)
@@ -80,6 +80,8 @@ pip install -e ".[dev]"
 ### First-Run Note
 
 On first run, the pipeline builds `slam-workspace:latest` from `Dockerfile.workspace`. Docker runs use that image directly. Apptainer runs also build a cached `.sif` image from the Docker image, which can take several additional minutes.
+
+If Docker is not available, Apptainer mode falls back to building the `.sif` image directly from the repo Dockerfile context.
 
 The first `window_*` run also builds either `windows-pipeline-cpu:latest` or `windows-pipeline-gpu:latest`. Apptainer runs additionally cache matching `.sif` images under `.cache/`.
 

@@ -341,6 +341,11 @@ def print_stage_log_tail(output_dir: Path, stage_name: str) -> None:
 
 def copy_tree(source_dir: Path, target_dir: Path) -> None:
     """Replace target directory contents with a copy of source_dir."""
+    source_resolved = source_dir.resolve()
+    target_resolved = target_dir.resolve()
+    if source_resolved == target_resolved:
+        return
+
     if target_dir.exists():
         shutil.rmtree(target_dir)
     shutil.copytree(source_dir, target_dir)

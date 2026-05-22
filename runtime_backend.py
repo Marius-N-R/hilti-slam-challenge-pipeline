@@ -77,7 +77,7 @@ class ExecutionSpec:
 
 
 class ContainerBackend:
-    """Execute stages via Docker or Apptainer."""
+    """Execute stages via Docker or Apptainer/Singularity."""
 
     def __init__(self, runtime: str, scripts_dir: Path, cache_dir: Path | None = None):
         self.runtime = runtime
@@ -85,6 +85,7 @@ class ContainerBackend:
         self.cache_dir = (cache_dir or CACHE_DIR).resolve()
         self.runtime_dir = self.cache_dir / "stage-runtime"
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        self.apptainer_bin = self._resolve_apptainer_binary() if runtime == "apptainer" else None
 
     def host_has_nvidia_gpu(self) -> bool:
         result = subprocess.run(
@@ -213,7 +214,8 @@ class ContainerBackend:
         return profile.docker_archive
 
     def _ensure_apptainer_image(self, profile: ProfileImage) -> Path:
-        self._require_binary("apptainer")
+        if self.apptainer_bin is None:
+            raise RuntimeError("Apptainer/Singularity runtime requested but no binary was found")
         archive_path = self._ensure_docker_archive(profile)
         profile.apptainer_image.parent.mkdir(parents=True, exist_ok=True)
         if profile.apptainer_image.exists():
@@ -222,7 +224,7 @@ class ContainerBackend:
         print(f"[build] Building Apptainer image: {profile.apptainer_image.name}")
         result = subprocess.run(
             [
-                "apptainer",
+                self.apptainer_bin,
                 "build",
                 "--force",
                 str(profile.apptainer_image),
@@ -246,7 +248,7 @@ class ContainerBackend:
         use_gpu: bool,
     ) -> list[str]:
         if self.runtime == "docker":
-            cmd = ["docker", "run", "--rm"]
+            cmd = ["docker", "run", "--rm", "--security-opt", "label=disable"]
             if use_gpu:
                 cmd.extend(["--gpus", "all"])
             cmd.extend(["-w", workdir])
@@ -262,7 +264,9 @@ class ContainerBackend:
             return cmd
 
         if self.runtime == "apptainer":
-            cmd = ["apptainer", "exec", "--cleanenv", "--pwd", workdir]
+            if self.apptainer_bin is None:
+                raise RuntimeError("Apptainer/Singularity runtime requested but no binary was found")
+            cmd = [self.apptainer_bin, "exec", "--cleanenv", "--pwd", workdir]
             if use_gpu:
                 cmd.append("--nv")
             for mount in mounts:
@@ -283,3 +287,10 @@ class ContainerBackend:
         if shutil.which(name):
             return
         raise RuntimeError(f"Required binary not found in PATH: {name}")
+
+    @staticmethod
+    def _resolve_apptainer_binary() -> str | None:
+        for candidate in ("apptainer", "singularity"):
+            if shutil.which(candidate):
+                return candidate
+        return None

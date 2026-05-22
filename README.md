@@ -39,11 +39,11 @@ third_party/windows_pipeline/ # Vendored GroundingDINO / SAM3 / py360convert
 
 - Python `>=3.10`
 - Docker for image builds and Docker runtime execution
-- Apptainer for Apptainer runtime execution (`--container-runtime apptainer`)
+- Apptainer or Singularity for `--container-runtime apptainer`
 - Network access for first workspace image build (clones challenge repos)
 - Network access for the first `window_dino` run (downloads the GroundingDINO checkpoint)
 - Recommended local environment: Conda env `3dvis`
-- For `window_*` GPU runs: NVIDIA GPU, `nvidia-smi`, and runtime GPU support (`docker --gpus all` or `apptainer --nv`)
+- For `window_*` GPU runs: NVIDIA GPU, `nvidia-smi`, and runtime GPU support (`docker --gpus all` or `apptainer/singularity --nv`)
 
 ## Window Detection Direction
 
@@ -135,6 +135,7 @@ Key arguments:
 - `--input/-i`: one or more bag paths (supports quoted globs)
 - `--output/-o`: output root directory
 - `--container-runtime {docker,apptainer}`: execution backend
+  `apptainer` mode accepts either the `apptainer` or `singularity` host binary
 - `--list-stages/-l`: print stages and exit
 - `--verbose/-v`: extra console output
 

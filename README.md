@@ -129,8 +129,8 @@ python pipeline.py --stages slam floorplan_overlay \
   --output results/ \
   --slam-rate 0.5
 
-# Transitional file-based window pipeline on CPU
-python pipeline.py --stages window_rectify \
+# Public file-based window pipeline on CPU
+python pipeline.py --stages windows \
   --input /path/to/input.png \
   --output results/ \
   --windows-device cpu
@@ -169,7 +169,7 @@ Visualization options:
 
 Window segmentation options:
 
-- `--windows-device {auto,cpu,cuda}`: device for `window_*` stages
+- `--windows-device {auto,cpu,cuda}`: device for `windows` / `window_*` stages
 - `--windows-prompt`: GroundingDINO prompt
 - `--windows-box-threshold`: GroundingDINO box threshold
 - `--windows-text-threshold`: GroundingDINO text threshold
@@ -186,6 +186,7 @@ Window segmentation options:
 | `plot_path` | Draw 2D trajectory image | `trajectory.txt` | `trajectory_path.png` |
 | `floorplan_overlay` | Draw trajectory over floorplan image | `trajectory.txt` (+ optional floorplan image) | `floorplan_overlay.png` |
 | `clean` | Remove output directory for the input run | output folder as input | cleaned host output |
+| `windows` | Public normalized window-perception bundle | image file | `windows/metadata.json` + canonical artifacts |
 | `window_dino` | Transitional file-based window box detection | image file | `grounding_dino/bb.npy` + previews |
 | `window_sam` | Transitional file-based SAM3 segmentation | image file or `window_dino` output | `windows_masks.npy`, `windows_segmented.png` |
 | `window_rectify` | Transitional file-based mask rectification | `window_sam` output | `undistorted/mask_undistorted.png` |
@@ -202,6 +203,7 @@ The pipeline auto-adds dependencies when needed:
 - `pca_align` automatically includes `slam`
 - `plot_path` automatically includes `slam`
 - `floorplan_overlay` automatically includes `slam`
+- `windows` automatically includes `window_rectify`
 - `window_sam` automatically includes `window_dino`
 - `window_rectify` automatically includes `window_sam`
 
@@ -375,22 +377,35 @@ python pipeline.py --stages window_dino \
   --windows-device cpu
 ```
 
-### Transitional: run the full window pipeline on GPU
+### Run the public window pipeline on GPU
 
 ```bash
-python pipeline.py --stages window_rectify \
+python pipeline.py --stages windows \
   --input /path/to/input.png \
   --output results/ \
   --windows-device cuda
 ```
 
-### Transitional: force CPU fallback for the full window pipeline
+### Force CPU fallback for the public window pipeline
 
 ```bash
-python pipeline.py --stages window_rectify \
+python pipeline.py --stages windows \
   --input /path/to/input.png \
   --output results/ \
   --windows-device cpu
+```
+
+Canonical output bundle:
+
+```text
+results/<image_stem>/windows/
+  metadata.json
+  boxes.npy
+  dino_input.jpg
+  dino_overlay.jpg
+  masks.npy
+  segmented_overlay.png
+  rectified_mask.png
 ```
 
 ### Planned ROS-native window flow

@@ -13,6 +13,7 @@ Available stages:
   - plot_path: Render SLAM trajectory to an image
   - floorplan_overlay: Overlay trajectory on a floorplan image
   - clean    : Remove pipeline outputs (leaves input data intact)
+  - windows  : Run the full window-perception stack and normalize outputs
 
 Usage:
     python pipeline.py --stages stitch slam --input data/floor_1/2025-05-05/run_1/rosbag
@@ -469,7 +470,7 @@ Adding Custom Stages:
         "--windows-device",
         default="auto",
         choices=["auto", "cpu", "cuda"],
-        help="Execution device for window_* stages (default: auto).",
+        help="Execution device for windows/window_* stages (default: auto).",
     )
     windows_group.add_argument(
         "--windows-prompt",
@@ -521,6 +522,7 @@ def expand_stage_dependencies(stage_names: List[str]) -> List[str]:
         "floorplan_overlay": ["slam"],
         "window_sam": ["window_dino"],
         "window_rectify": ["window_sam"],
+        "windows": ["window_rectify"],
     }
     ordered = []
     seen = set()

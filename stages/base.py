@@ -93,6 +93,7 @@ class Stage(ABC):
     def get_ros_source_cmd(self) -> str:
         """Return the bash command to source ROS2 and workspace."""
         return (
+            "export AMENT_TRACE_SETUP_FILES=${AMENT_TRACE_SETUP_FILES:-} && "
             "source /opt/ros/jazzy/setup.bash && "
             "source /root/ros2_ws/install/setup.bash"
         )

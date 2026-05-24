@@ -6,8 +6,6 @@ import json
 import shutil
 from pathlib import Path
 
-import numpy as np
-
 from .base import Stage, StageConfig
 
 
@@ -38,6 +36,8 @@ class WindowsStage(Stage):
         input_dir: Path,
         config: StageConfig,
     ) -> Path:
+        import numpy as np
+
         windows_dir = input_dir / "windows"
         windows_dir.mkdir(parents=True, exist_ok=True)
 

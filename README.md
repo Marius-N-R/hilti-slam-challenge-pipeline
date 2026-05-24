@@ -65,10 +65,21 @@ The current `window_dino`, `window_sam`, and `window_rectify` stages are a trans
 
 ## Setup
 
+### Fresh Clone
+
 ```bash
-# Optional but recommended
-python -m venv .venv
+git clone <your-repo-url> hilti-slam-challenge-pipeline
+cd hilti-slam-challenge-pipeline
+```
+
+### Python Environment
+
+Use a standard virtual environment. The project no longer assumes Conda.
+
+```bash
+python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
 
 # Runtime dependencies
 pip install -r requirements.txt
@@ -77,13 +88,57 @@ pip install -r requirements.txt
 pip install -e ".[dev]"
 ```
 
-### First-Run Note
+### Host Prerequisites
 
-On first run, the pipeline builds `slam-workspace:latest` from `Dockerfile.workspace`. Docker runs use that image directly. Apptainer runs also build a cached `.sif` image from the Docker image, which can take several additional minutes.
+Pick the subset you need:
 
-If Docker is not available, Apptainer mode falls back to building the `.sif` image from native Apptainer definition files shipped in `container_defs/`.
+- Docker for Docker runtime execution and for the fastest Apptainer conversion path
+- Apptainer or Singularity for `--container-runtime apptainer`
+- `nvidia-smi` for GPU runs
+- network access for first-time model/image downloads
 
-On HPC systems where unprivileged `apptainer build` is restricted, you can skip local builds entirely by pointing the pipeline at prebuilt images:
+Quick checks:
+
+```bash
+python --version
+docker --version
+apptainer --version   # or singularity --version
+nvidia-smi            # only required for GPU runs
+```
+
+### Runtime Dependency Notes
+
+- `windows` and `windows_rosbag` do not require `numpy` in the host venv to run successfully
+- host-side `numpy` is only used opportunistically for richer bundle statistics in `windows/metadata.json`
+- container images carry the ML stack; the host venv only needs the Python orchestration dependencies
+
+## Image Build Flows
+
+### Docker Runtime
+
+For Docker runs, the pipeline builds images on demand:
+
+- `slam-workspace:latest` from `Dockerfile.workspace`
+- `windows-pipeline-cpu:latest` from `Dockerfile.windows.cpu`
+- `windows-pipeline-gpu:latest` from `Dockerfile.windows.gpu`
+
+You can also build them manually:
+
+```bash
+docker build -t slam-workspace:latest -f Dockerfile.workspace .
+docker build -t windows-pipeline-cpu:latest -f Dockerfile.windows.cpu .
+docker build -t windows-pipeline-gpu:latest -f Dockerfile.windows.gpu .
+```
+
+### Apptainer Runtime
+
+For Apptainer runs, the backend tries these paths in order:
+
+1. use a prebuilt `.sif` from environment variables
+2. if Docker is available, convert a Docker image/archive into `.sif`
+3. if Docker is not available, build from native definition files in `container_defs/`
+
+Supported override variables:
 
 ```bash
 export PIPELINE_APPTAINER_ROS_IMAGE=/path/to/slam-workspace.sif
@@ -91,13 +146,104 @@ export PIPELINE_APPTAINER_WINDOWS_CPU_IMAGE=/path/to/windows-pipeline-cpu.sif
 export PIPELINE_APPTAINER_WINDOWS_GPU_IMAGE=/path/to/windows-pipeline-gpu.sif
 ```
 
-Only set the image variables you actually need for the stages you are running.
+Only set the images you actually need.
 
-The first `window_*` run also builds either `windows-pipeline-cpu:latest` or `windows-pipeline-gpu:latest`. Apptainer runs additionally cache matching `.sif` images under `.cache/`.
+### Recommended Apptainer Build Workflow
 
-For the transitional `window_*` stages, the first window-image build downloads the upstream GroundingDINO checkpoint into the image. The runtime also re-downloads it if the file is missing.
+If Docker is available on the build machine, this is the most reliable path:
 
-These image-only stages are transitional. The planned ROS-native window stage will eventually live in a ROS-capable container profile instead of a separate file-processing image.
+```bash
+docker build --no-cache -t windows-pipeline-gpu:latest -f Dockerfile.windows.gpu .
+docker save windows-pipeline-gpu:latest -o windows-pipeline-gpu.tar
+apptainer build windows-pipeline-gpu.sif docker-archive://$(pwd)/windows-pipeline-gpu.tar
+```
+
+For CPU:
+
+```bash
+docker build --no-cache -t windows-pipeline-cpu:latest -f Dockerfile.windows.cpu .
+docker save windows-pipeline-cpu:latest -o windows-pipeline-cpu.tar
+apptainer build windows-pipeline-cpu.sif docker-archive://$(pwd)/windows-pipeline-cpu.tar
+```
+
+For the ROS workspace:
+
+```bash
+docker build -t slam-workspace:latest -f Dockerfile.workspace .
+docker save slam-workspace:latest -o slam-workspace.tar
+apptainer build slam-workspace.sif docker-archive://$(pwd)/slam-workspace.tar
+```
+
+If Docker is not available but Apptainer build is permitted, build from definition files directly:
+
+```bash
+apptainer build windows-pipeline-gpu.sif container_defs/windows_gpu.def
+apptainer build windows-pipeline-cpu.sif container_defs/windows_cpu.def
+apptainer build slam-workspace.sif container_defs/workspace.def
+```
+
+### Validate a Fresh GPU Window Image
+
+Before copying a new GPU `.sif` anywhere, validate the Docker image locally:
+
+```bash
+docker run --rm windows-pipeline-gpu:latest \
+  python -c "import torch; print(torch.__version__); print(torch.version.cuda)"
+
+docker run --rm windows-pipeline-gpu:latest \
+  python -c "import cv2, groundingdino, sam3; print('imports ok')"
+```
+
+For the current GPU image, expected values are:
+
+- `torch 2.7.0+cu128`
+- `CUDA 12.8`
+
+## First-Run Behavior
+
+- the first SLAM run builds the ROS workspace image if missing
+- the first window run builds either the CPU or GPU window image if missing
+- the first GroundingDINO run downloads `groundingdino_swint_ogc.pth` automatically
+- `window_sam` still needs either:
+  - `HF_TOKEN` with access to gated `facebook/sam3`, or
+  - `--sam3-checkpoint /absolute/path/to/sam3.pt`
+
+Example:
+
+```bash
+export HF_TOKEN=<your_token>
+```
+
+or:
+
+```bash
+python pipeline.py --stages windows \
+  --input /path/to/image.png \
+  --output results/ \
+  --windows-device cuda \
+  --sam3-checkpoint /absolute/path/to/sam3.pt
+```
+
+These image-only stages are still transitional. The long-term target remains a ROS-native subscriber-based window stage.
+
+## Cluster / Prebuilt SIF Deployment
+
+On systems where local `apptainer build` is restricted, build `.sif` files on another machine and copy them over.
+
+Example copy to ETH cluster:
+
+```bash
+scp windows-pipeline-gpu.sif \
+  fniederer@student-cluster1.inf.ethz.ch:/work/courses/3dv/team6/hilti-slam-challenge-pipeline/
+```
+
+Then on the target system:
+
+```bash
+export PIPELINE_APPTAINER_WINDOWS_GPU_IMAGE=/work/courses/3dv/team6/hilti-slam-challenge-pipeline/windows-pipeline-gpu.sif
+```
+
+Run the pipeline normally after that.
 
 ## Quick Start
 
@@ -297,6 +443,147 @@ For the planned ROS-native window stage, expected artifacts are:
 - debug overlays
 - optional projected floor points
 - optional ROS-topic-derived summaries
+
+## Apptainer Build Workarounds
+
+These are the concrete issues encountered during integration and the workarounds that proved useful.
+
+### 1. `/tmp` quota too small during `apptainer build`
+
+Symptom:
+
+```text
+disk quota exceeded
+```
+
+Cause:
+
+- Apptainer unpacks OCI / Docker archives under `/tmp` by default
+- large GPU images exceed temporary storage quotas quickly
+
+Workaround:
+
+```bash
+mkdir -p .apptainer-tmp .apptainer-cache
+export APPTAINER_TMPDIR=$PWD/.apptainer-tmp
+export TMPDIR=$PWD/.apptainer-tmp
+export APPTAINER_CACHEDIR=$PWD/.apptainer-cache
+```
+
+Use those variables before `apptainer build`.
+
+### 2. Cluster forbids unprivileged `%post` execution
+
+Symptom:
+
+```text
+Could not write info to setgroups: Permission denied
+Error while waiting event for user namespace mappings
+```
+
+Cause:
+
+- the cluster allows Apptainer runtime but not full unprivileged image builds for these definitions
+
+Practical workaround:
+
+- do not build the `.sif` on the cluster
+- build it on a workstation where Docker or Apptainer build works
+- copy the finished `.sif` to the cluster
+- point the pipeline at it with `PIPELINE_APPTAINER_*_IMAGE`
+
+This ended up being the reliable deployment model.
+
+### 3. Only `singularity` exists, not `apptainer`
+
+Symptom:
+
+- host has `singularity` but no `apptainer` binary
+
+Current behavior:
+
+- `--container-runtime apptainer` now accepts either binary
+- no symlink hack is required anymore
+
+### 4. No Docker on the runtime machine
+
+If Docker is unavailable:
+
+- the backend can still run with prebuilt `.sif` images
+- or attempt native `.def` builds if the machine permits them
+
+Recommended approach:
+
+- on restricted systems, treat image build and image run as separate steps
+
+### 5. Bind-mounted script permission problems
+
+Observed issues included:
+
+- Docker bind-mounted wrapper scripts not executable under SELinux
+- Apptainer output copy failures when preserving permissions
+
+Current workarounds already implemented in the repo:
+
+- Docker backend uses `--security-opt label=disable`
+- stage wrappers use `cp -r`, not `cp -a`
+
+### 6. GPU image compatibility on newer NVIDIA GPUs
+
+Problem we hit:
+
+- older PyTorch/CUDA stacks did not support newer GPU architectures such as `sm_120`
+
+Current fix in the repo:
+
+- GPU image uses a newer CUDA/PyTorch stack
+- local validation should always include:
+
+```bash
+docker run --rm windows-pipeline-gpu:latest \
+  python -c "import torch; print(torch.__version__); print(torch.version.cuda)"
+```
+
+### 7. OpenCV GUI / GL / X11 issues under Apptainer
+
+Symptoms included:
+
+- `GLIBC_2.38 not found`
+- `libX11.so.6: cannot open shared object file`
+
+Current fix in the repo:
+
+- the window images use `opencv-python-headless`
+- GUI-linked OpenCV variants are removed during image build
+
+### 8. GroundingDINO weights and read-only container paths
+
+Problem:
+
+- Apptainer runtime mounted `/opt/windows_pipeline` read-only, so downloading weights into the vendored tree failed
+
+Current fix in the repo:
+
+- GroundingDINO weights auto-download into the writable stage output cache:
+  - `grounding_dino/.model_cache/`
+
+### 9. Prebuilt image override path must be real
+
+Symptom:
+
+```text
+PIPELINE_APPTAINER_WINDOWS_GPU_IMAGE points to a missing Apptainer image
+```
+
+Cause:
+
+- the environment variable pointed to a placeholder path or missing file
+
+Check first:
+
+```bash
+ls -lh "$PIPELINE_APPTAINER_WINDOWS_GPU_IMAGE"
+```
 
 PCA alignment artifacts:
 

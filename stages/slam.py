@@ -36,9 +36,14 @@ class SlamStage(Stage):
         input_dir: Path,
         config: StageConfig,
     ) -> Path:
-        """Run OpenVINS SLAM on the input bag."""
+        """Run OpenVINS SLAM on the bag inside <input_dir>/rosbag/."""
 
-        # Read the runner script
+        bag_dir = input_dir / "rosbag"
+        if not bag_dir.is_dir():
+            raise FileNotFoundError(
+                f"Expected 'rosbag' subdirectory inside {input_dir}"
+            )
+
         runner_path = Path(__file__).parent / "slam_runner.py"
         runner_script = runner_path.read_text()
 
@@ -46,13 +51,6 @@ class SlamStage(Stage):
         wrapper = f"""#!/bin/bash
 set +e
 mkdir -p /output
-
-# Preserve floorplan assets (if present) for downstream overlay stage.
-for candidate in /input/floorplan.* /input/map.*; do
-  if [ -f "$candidate" ]; then
-    cp "$candidate" /output/
-  fi
-done
 
 python3 /stage_runtime/slam_runner.py {config.slam_rate} {config.slam_timeout} 2>&1 | tee /output/slam.log
 STATUS=${{PIPESTATUS[0]}}
@@ -62,7 +60,7 @@ exit 0
 
         return runner.run_stage(
             container_profile=self.container_profile,
-            input_dir=input_dir,
+            input_dir=bag_dir,
             config=config,
             spec=ExecutionSpec(
                 stage_name=self.name,

@@ -6,30 +6,30 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+def stage_output_path(config: "StageConfig", stage_name: str) -> Path:
+    """Resolve a sibling stage's canonical output directory.
+
+    Output layout convention (set by pipeline.py): <output_root>/<stage>/<input_folder_name>/.
+    `config.input_root` holds the output root (the field name is historical),
+    and `config.extra['current_input_name']` holds the folder name.
+    """
+    folder = config.extra.get("current_input_name", "")
+    if not folder or not config.input_root:
+        raise RuntimeError(
+            "Cannot resolve stage output path: input_root or current_input_name missing"
+        )
+    return Path(config.input_root) / stage_name / folder
+
+
 @dataclass
 class StageConfig:
     """Configuration passed to stages."""
-    # Common options
     verbose: bool = False
     input_root: str = ""
 
-    # Stitching options
-    use_torch: bool = True
-    torch_device: str = "auto"
-    jpeg_quality: int = 95
-
     # SLAM options
-    slam_rate: float = 1.0
+    slam_rate: float = 0.5  # OpenVINS needs <= 0.5x replay on this dataset for stable init
     slam_timeout: int = 0  # seconds (0 disables timeout)
-
-    # Window segmentation options
-    windows_device: str = "auto"
-    windows_prompt: str = "windows"
-    windows_box_threshold: float = 0.3
-    windows_text_threshold: float = 0.25
-    sam3_checkpoint: str = ""
-    windows_topic: str = "/cam0/image_raw/compressed"
-    windows_frame_index: int = -1
 
     # Custom options (for extensibility)
     extra: Dict[str, Any] = field(default_factory=dict)
@@ -54,6 +54,11 @@ class Stage(ABC):
     def requires_ros_runtime(self) -> bool:
         """Whether this stage needs a running ROS2 system (ros2 launch, etc)."""
         return False
+
+    @property
+    def requires_container(self) -> bool:
+        """Whether this stage needs a container build/run. Host-only stages return False."""
+        return True
 
     @property
     def container_profile(self) -> str:

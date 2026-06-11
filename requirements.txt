@@ -1,1 +1,5 @@
-# The pipeline currently uses only Python stdlib modules at runtime.
+# Host-side dependencies for the alignment / geometry stages.
+# The slam and line_extractor stages run inside the container and use the
+# container's own Python; nothing additional is required on the host for them.
+numpy>=1.24
+ezdxf>=1.0

@@ -47,8 +47,6 @@ data/
 *.log
 *.tmp
 
-# Vendored model checkpoints downloaded at runtime
-third_party/windows_pipeline/GroundingDINO/weights/
-windows-pipeline-gpu.sif
-.gitignore
-windows-pipeline-gpu.tar
+# Apptainer images and Docker archives built locally
+*.sif
+*.tar

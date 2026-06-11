@@ -38,8 +38,7 @@ include = [
     "/requirements.txt",
     "/pyproject.toml",
     "/Dockerfile.workspace",
-    "/Dockerfile.windows.cpu",
-    "/Dockerfile.windows.gpu",
+    "/container_defs",
 ]
 
 [tool.ruff]

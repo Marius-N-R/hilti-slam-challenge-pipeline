@@ -33,28 +33,10 @@ PROFILE_IMAGES = {
         docker_archive=CACHE_DIR / "slam-workspace.tar",
         apptainer_image=CACHE_DIR / "slam-workspace.sif",
     ),
-    "windows_cpu": ProfileImage(
-        profile="windows_cpu",
-        docker_image="windows-pipeline-cpu:latest",
-        dockerfile=ROOT / "Dockerfile.windows.cpu",
-        apptainer_def=ROOT / "container_defs" / "windows_cpu.def",
-        docker_archive=CACHE_DIR / "windows-pipeline-cpu.tar",
-        apptainer_image=CACHE_DIR / "windows-pipeline-cpu.sif",
-    ),
-    "windows_gpu": ProfileImage(
-        profile="windows_gpu",
-        docker_image="windows-pipeline-gpu:latest",
-        dockerfile=ROOT / "Dockerfile.windows.gpu",
-        apptainer_def=ROOT / "container_defs" / "windows_gpu.def",
-        docker_archive=CACHE_DIR / "windows-pipeline-gpu.tar",
-        apptainer_image=CACHE_DIR / "windows-pipeline-gpu.sif",
-    ),
 }
 
 APPTAINER_IMAGE_OVERRIDE_ENV = {
     "ros": "PIPELINE_APPTAINER_ROS_IMAGE",
-    "windows_cpu": "PIPELINE_APPTAINER_WINDOWS_CPU_IMAGE",
-    "windows_gpu": "PIPELINE_APPTAINER_WINDOWS_GPU_IMAGE",
 }
 
 
@@ -89,36 +71,17 @@ class ExecutionSpec:
 class ContainerBackend:
     """Execute stages via Docker or Apptainer/Singularity."""
 
-    def __init__(self, runtime: str, scripts_dir: Path, cache_dir: Path | None = None):
+    def __init__(self, runtime: str, cache_dir: Path | None = None):
         self.runtime = runtime
-        self.scripts_dir = scripts_dir.resolve()
         self.cache_dir = (cache_dir or CACHE_DIR).resolve()
         self.runtime_dir = self.cache_dir / "stage-runtime"
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.apptainer_bin = self._resolve_apptainer_binary() if runtime == "apptainer" else None
 
-    def host_has_nvidia_gpu(self) -> bool:
-        result = subprocess.run(
-            ["nvidia-smi", "-L"],
-            capture_output=True,
-            text=True,
-        )
-        return result.returncode == 0 and bool(result.stdout.strip())
-
-    def profile_key(self, container_profile: str, windows_device: str) -> str:
-        if container_profile == "ros":
-            return "ros"
-        if container_profile != "windows":
+    def ensure_profile_image(self, container_profile: str) -> Path | str:
+        if container_profile not in PROFILE_IMAGES:
             raise ValueError(f"Unsupported container profile: {container_profile}")
-
-        use_gpu = windows_device == "cuda" or (
-            windows_device == "auto" and self.host_has_nvidia_gpu()
-        )
-        return "windows_gpu" if use_gpu else "windows_cpu"
-
-    def ensure_profile_image(self, container_profile: str, windows_device: str) -> Path | str:
-        profile_key = self.profile_key(container_profile, windows_device)
-        profile = PROFILE_IMAGES[profile_key]
+        profile = PROFILE_IMAGES[container_profile]
         if self.runtime == "docker":
             self._ensure_docker_image(profile)
             return profile.docker_image
@@ -137,7 +100,7 @@ class ContainerBackend:
         config,
         spec: ExecutionSpec,
     ) -> Path:
-        image_ref = self.ensure_profile_image(container_profile, config.windows_device)
+        image_ref = self.ensure_profile_image(container_profile)
 
         stage_root = Path(
             tempfile.mkdtemp(prefix=f"{spec.stage_name}-", dir=self.runtime_dir)
@@ -157,27 +120,10 @@ class ContainerBackend:
             BindMount(input_dir.resolve(), "/input", read_only=True),
             BindMount(output_dir, "/output", read_only=False),
             BindMount(bundle_dir, "/stage_runtime", read_only=True),
-            BindMount(self.scripts_dir, "/opt/pipeline_scripts", read_only=True),
         ]
-        windows_pipeline_dir = ROOT / "third_party" / "windows_pipeline"
-        if windows_pipeline_dir.exists():
-            mounts.append(
-                BindMount(windows_pipeline_dir.resolve(), "/opt/windows_pipeline", read_only=True)
-            )
         mounts.extend(spec.extra_mounts)
 
         env = dict(spec.env)
-        hf_token = os.environ.get("HF_TOKEN", "").strip()
-        if hf_token:
-            env.setdefault("HF_TOKEN", hf_token)
-        if config.sam3_checkpoint:
-            mounts.append(
-                BindMount(
-                    Path(config.sam3_checkpoint).resolve(),
-                    "/opt/windows_pipeline/checkpoints/sam3.pt",
-                    read_only=True,
-                )
-            )
 
         command = self._build_run_command(
             image_ref=image_ref,

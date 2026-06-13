@@ -48,7 +48,9 @@ class PcaAlignStage(Stage):
         timestamps, positions, quats = _load_pose_csv(input_csv)
 
         mean, basis, eigenvalues = _build_pca_basis(positions)
-        aligned_positions = (positions - mean) @ basis
+        anchor_idx, anchor_source = _resolve_anchor_idx(timestamps, config)
+        anchor_position = positions[anchor_idx].copy()
+        aligned_positions = (positions - anchor_position) @ basis + anchor_position
 
         # Position rows are multiplied by `basis`, so column-vector rotations
         # need the equivalent world-frame transform `basis.T`.
@@ -74,6 +76,7 @@ class PcaAlignStage(Stage):
         log_lines = [
             f"Input trajectory: {input_csv} ({len(timestamps)} poses)",
             f"Output trajectory: {output_csv}",
+            f"Anchor: index={anchor_idx}, source={anchor_source}, position={anchor_position.tolist()}",
             f"Mean: {mean.tolist()}",
             f"Eigenvalues: {eigenvalues.tolist()}",
             f"Basis matrix: {output_dir / MATRIX_TXT}",
@@ -82,6 +85,9 @@ class PcaAlignStage(Stage):
             "\n".join(
                 [
                     f"points={len(timestamps)}",
+                    f"anchor_index={anchor_idx}",
+                    f"anchor_source={anchor_source}",
+                    f"anchor_position={anchor_position.tolist()}",
                     f"mean={mean.tolist()}",
                     f"eigenvalues={eigenvalues.tolist()}",
                 ]
@@ -133,6 +139,37 @@ def _load_pose_csv(path: Path):
         raise ValueError(f"Need at least two pose rows for PCA alignment: {path}")
     arr = np.asarray(rows, dtype=float)
     return arr[:, 0], arr[:, 1:4], arr[:, 4:8]
+
+
+def _resolve_anchor_idx(timestamps: np.ndarray, config: StageConfig):
+    if config.align_start_position:
+        original_input = config.extra.get("current_input_path", "")
+        if original_input:
+            initial_pose_path = Path(original_input) / "initial-pos.txt"
+            if initial_pose_path.is_file():
+                try:
+                    initial_ts = _load_initial_timestamp(initial_pose_path)
+                    idx = int(np.argmin(np.abs(timestamps - initial_ts)))
+                    return idx, f"initial-pos.txt timestamp {initial_ts:.9f}"
+                except Exception as exc:
+                    print(
+                        f"[pca_align] WARNING: failed to read {initial_pose_path}: {exc}; "
+                        "falling back to first pose anchor"
+                    )
+    return 0, "first trajectory pose"
+
+
+def _load_initial_timestamp(path: Path) -> float:
+    with path.open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            parts = stripped.replace(",", " ").split()
+            if len(parts) < 1:
+                continue
+            return float(parts[0])
+    raise ValueError(f"No timestamp row found in {path}")
 
 
 def _build_pca_basis(points: np.ndarray):

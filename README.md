@@ -122,8 +122,8 @@ python pipeline.py --stages all \
   --output ./out \
   --slam-rate 0.5
 
-# Run the complete pipeline with optional PCA alignment after align
-python pipeline.py --stages all --include-pca-align \
+# Run the complete pipeline with optional start alignment and PCA alignment
+python pipeline.py --stages all --align-start-position --include-pca-align \
   --input data/floor_1 \
   --output ./out \
   --slam-rate 0.5
@@ -150,6 +150,7 @@ Key arguments:
 - `--container-runtime {docker,apptainer}`: execution backend
   `apptainer` mode accepts either the `apptainer` or `singularity` host binary
 - `--list-stages/-l`: print stages and exit
+- `--align-start-position`: use `initial-pos.txt` in the `align` stage to place the CSV trajectory in the map frame
 - `--include-pca-align`: when using `all`, insert `pca_align` immediately after `align`
 - `--verbose/-v`: extra console output
 
@@ -164,7 +165,7 @@ SLAM options:
 |---|---|---|---|
 | `all` | Expand to the complete dependency-ordered pipeline | Run folder | All stage artifacts |
 | `slam` | Run OpenVINS visual-inertial SLAM | ROS2 bag with `cam0/cam1 + imu` | `trajectory.txt` + SLAM logs |
-| `align` | Align SLAM trajectory to `initial-pos.txt` | `slam` output + run folder | `trajectory_aligned.csv` |
+| `align` | Convert SLAM IMU poses to cam0 CSV; optionally align to `initial-pos.txt` | `slam` output + run folder | `trajectory_aligned.csv` |
 | `pca_align` | Reorient the aligned CSV trajectory using PCA axes | `align` output | `trajectory_pca_aligned.csv` + PCA diagnostics |
 | `line_extractor` | Extract near-horizontal cam0 line detections | Run folder ROS2 bag | `lines.csv` |
 | `floorplan_edges` | Extract wall segments from the run DXF | Run folder DXF | `floorplan_edges.csv` |
@@ -302,10 +303,10 @@ python pipeline.py --stages all \
   --slam-rate 0.5
 ```
 
-### Run the complete pipeline with PCA alignment
+### Run the complete pipeline with start and PCA alignment
 
 ```bash
-python pipeline.py --stages all --include-pca-align \
+python pipeline.py --stages all --align-start-position --include-pca-align \
   --input data/floor_1 \
   --output ./out \
   --slam-rate 0.5

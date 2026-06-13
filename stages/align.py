@@ -1,13 +1,14 @@
-"""Align a SLAM trajectory to a known initial pose (yaw + 3D translation only).
+"""Convert a SLAM trajectory to cam0 CSV, optionally aligned to the initial pose.
 
 Runs on the host (pure numpy). Reads:
   - <previous stage output>/trajectory.txt   (TUM format: `timestamp tx ty tz qx qy qz qw`)
-  - <original input folder>/initial-pos.txt  (CSV: header `# timestamp tx ty tz qx qy qz qw`,
-                                              single data row)
+  - <original input folder>/initial-pos.txt  when --align-start-position is enabled
+    (CSV: header `# timestamp tx ty tz qx qy qz qw`, single data row)
 
 The SLAM trajectory from `/ov_msckf/poseimu` is the **IMU** body pose in OpenVINS
-world. The challenge ground-truth `initial-pos.txt` is the **cam0** pose in the
-map frame. Output is `cam0` pose in the `map` frame.
+world. This stage always converts it to a **cam0** pose CSV. If start alignment
+is disabled, that cam0 pose remains in OpenVINS world. If start alignment is
+enabled, `initial-pos.txt` is used to place cam0 in the map frame.
 
 Naively chaining `T_map_ovworld = M_init @ T_cam_imu @ inv(M_slam_anchor)` produces
 an SE(3) that "lands" cam0 at the GT pose exactly, but it bakes in any small
@@ -46,7 +47,7 @@ OUTPUT_CSV = "trajectory_aligned.csv"
 
 
 class AlignStage(Stage):
-    """Rigidly align a SLAM trajectory to a known initial pose."""
+    """Convert SLAM poses to cam0 CSV, optionally aligned to a known initial pose."""
 
     @property
     def name(self) -> str:
@@ -54,7 +55,7 @@ class AlignStage(Stage):
 
     @property
     def description(self) -> str:
-        return "Rigidly align SLAM trajectory to a known initial pose"
+        return "Convert SLAM trajectory to cam0 CSV, optionally start-aligned"
 
     @property
     def requires_container(self) -> bool:
@@ -71,32 +72,58 @@ class AlignStage(Stage):
                 f"Expected '{TRAJECTORY_FILENAME}' in previous stage output: {input_dir}"
             )
 
-        original_input_str = config.extra.get("current_input_path", "")
-        if not original_input_str:
-            raise RuntimeError("Original input path not set in config.extra")
-        original_input = Path(original_input_str)
-        if not original_input.is_dir():
-            raise FileNotFoundError(
-                f"Original input folder no longer exists: {original_input}"
-            )
-        initial_pose_path = original_input / INITIAL_POSE_FILENAME
-        if not initial_pose_path.is_file():
-            raise FileNotFoundError(
-                f"Expected '{INITIAL_POSE_FILENAME}' in original input folder: {original_input}"
-            )
-
         slam_poses = _load_pose_table(trajectory_path)
-        init_row = _load_initial_pose(initial_pose_path)
+        T_out_ovworld = np.eye(4)
+        log_lines = [
+            f"Trajectory: {trajectory_path} ({len(slam_poses)} poses)",
+        ]
 
-        anchor_idx = int(np.argmin(np.abs(slam_poses[:, 0] - init_row[0])))
-        anchor_t = float(slam_poses[anchor_idx, 0])
-        init_t = float(init_row[0])
+        if config.align_start_position:
+            original_input_str = config.extra.get("current_input_path", "")
+            if not original_input_str:
+                raise RuntimeError("Original input path not set in config.extra")
+            original_input = Path(original_input_str)
+            if not original_input.is_dir():
+                raise FileNotFoundError(
+                    f"Original input folder no longer exists: {original_input}"
+                )
+            initial_pose_path = original_input / INITIAL_POSE_FILENAME
+            if not initial_pose_path.is_file():
+                raise FileNotFoundError(
+                    f"Expected '{INITIAL_POSE_FILENAME}' in original input folder: {original_input}"
+                )
 
-        T_map_ovworld, yaw_rad, residual_tilt_deg = _compute_T_map_ovworld(
-            slam_anchor_imu=slam_poses[anchor_idx, 1:],
-            init_cam=init_row[1:],
-        )
-        aligned = _apply_to_imu_get_cam(slam_poses[:, 1:], T_map_ovworld)
+            init_row = _load_initial_pose(initial_pose_path)
+            anchor_idx = int(np.argmin(np.abs(slam_poses[:, 0] - init_row[0])))
+            anchor_t = float(slam_poses[anchor_idx, 0])
+            init_t = float(init_row[0])
+
+            T_out_ovworld, yaw_rad, residual_tilt_deg = _compute_T_map_ovworld(
+                slam_anchor_imu=slam_poses[anchor_idx, 1:],
+                init_cam=init_row[1:],
+            )
+            log_lines.extend(
+                [
+                    "Start alignment: enabled",
+                    f"Initial pose: {initial_pose_path}",
+                    (
+                        f"Anchor SLAM pose index {anchor_idx} at t={anchor_t:.6f} "
+                        f"(init t={init_t:.6f}, dt={anchor_t - init_t:+.6f})"
+                    ),
+                    f"Yaw correction (ovworld -> map): {math.degrees(yaw_rad):+.3f} deg",
+                    (
+                        "Residual non-yaw tilt in full SE(3) alignment: "
+                        f"{residual_tilt_deg:.2f} deg "
+                        "(discarded; see module docstring)"
+                    ),
+                ]
+            )
+        else:
+            log_lines.append(
+                "Start alignment: disabled; output cam0 poses remain in OpenVINS world"
+            )
+
+        aligned = _apply_to_imu_get_cam(slam_poses[:, 1:], T_out_ovworld)
 
         stage_root = Path(
             tempfile.mkdtemp(prefix=f"{self.name}-", dir=runner.runtime_dir)
@@ -106,20 +133,7 @@ class AlignStage(Stage):
 
         _write_csv(output_dir / OUTPUT_CSV, slam_poses[:, 0], aligned)
 
-        log_lines = [
-            f"Trajectory: {trajectory_path} ({len(slam_poses)} poses)",
-            f"Initial pose: {initial_pose_path}",
-            (
-                f"Anchor SLAM pose index {anchor_idx} at t={anchor_t:.6f} "
-                f"(init t={init_t:.6f}, dt={anchor_t - init_t:+.6f})"
-            ),
-            f"Yaw correction (ovworld -> map): {math.degrees(yaw_rad):+.3f} deg",
-            (
-                f"Residual non-yaw tilt in full SE(3) alignment: {residual_tilt_deg:.2f} deg "
-                "(discarded; see module docstring)"
-            ),
-            f"Aligned trajectory written: {output_dir / OUTPUT_CSV}",
-        ]
+        log_lines.append(f"Trajectory CSV written: {output_dir / OUTPUT_CSV}")
         (output_dir / f"{self.name}.log").write_text(
             "\n".join(log_lines) + "\n", encoding="utf-8"
         )

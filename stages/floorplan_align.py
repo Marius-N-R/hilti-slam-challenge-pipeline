@@ -76,6 +76,12 @@ class FloorplanAlignStage(Stage):
         edges = _load_edges(edges_path)
         traj_t, traj_xyz, traj_q = _load_aligned_traj(traj_path)
 
+        if not config.align_start_position:
+            print(
+                "[floorplan_align] WARNING: start alignment is disabled; "
+                "floorplan matching is using OpenVINS-world coordinates"
+            )
+
         if rays.size == 0:
             raise RuntimeError(f"No rays found in {rays_path}")
         if edges.size == 0:

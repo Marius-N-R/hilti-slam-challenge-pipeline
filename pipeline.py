@@ -285,8 +285,8 @@ Examples:
     # Run the complete dependency-ordered pipeline on one input folder
     python pipeline.py --stages all --input data/floor_1 --output ./out
 
-    # Run the complete pipeline with PCA alignment after trajectory CSV conversion
-    python pipeline.py --stages all --include-pca-align --input data/floor_1 --output ./out
+    # Run the complete pipeline with start alignment and PCA after trajectory CSV conversion
+    python pipeline.py --stages all --align-start-position --include-pca-align --input data/floor_1 --output ./out
 
     # Run SLAM on a single run folder (which contains a 'rosbag/' subdir)
     python pipeline.py --stages slam --input data/floor_1 --output ./out
@@ -340,6 +340,12 @@ Adding Custom Stages:
         "--include-pca-align",
         action="store_true",
         help="When using aggregate stages, insert pca_align after align",
+    )
+
+    parser.add_argument(
+        "--align-start-position",
+        action="store_true",
+        help="Use initial-pos.txt to align the converted cam0 CSV trajectory to the map frame",
     )
 
     slam_group = parser.add_argument_group("SLAM options")
@@ -403,6 +409,7 @@ def main():
         input_root=str(Path(args.output).resolve()),
         slam_rate=args.slam_rate,
         slam_timeout=args.slam_timeout,
+        align_start_position=args.align_start_position,
     )
 
     return run_pipeline(

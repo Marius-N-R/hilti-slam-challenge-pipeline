@@ -31,6 +31,9 @@ class StageConfig:
     slam_rate: float = 0.5  # OpenVINS needs <= 0.5x replay on this dataset for stable init
     slam_timeout: int = 0  # seconds (0 disables timeout)
 
+    # Alignment options
+    align_start_position: bool = False
+
     # Custom options (for extensibility)
     extra: Dict[str, Any] = field(default_factory=dict)
 

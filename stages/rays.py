@@ -71,6 +71,11 @@ class RaysStage(Stage):
                 f"[{self.name}] WARNING: using {traj_kind} trajectory; "
                 "rays expect cam0 poses in world from `align`, not raw IMU poses"
             )
+        elif not config.align_start_position:
+            print(
+                f"[{self.name}] WARNING: start alignment is disabled; rays are in "
+                "OpenVINS world, not the input map frame"
+            )
 
         stage_root = Path(
             tempfile.mkdtemp(prefix=f"{self.name}-", dir=runner.runtime_dir)

@@ -75,6 +75,11 @@ class Stage(ABC):
         """Type of output this stage produces."""
         return "rosbag"
 
+    @property
+    def expanded_stage_names(self) -> List[str]:
+        """Concrete stage names to run when this is an aggregate stage."""
+        return []
+
     @abstractmethod
     def run(
         self,

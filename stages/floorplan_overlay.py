@@ -7,23 +7,26 @@ points up on the rendered image.
 
 The trajectory is taken from the most-refined output available:
   1. trajectory_floor_aligned.csv (floorplan_align)
-  2. trajectory_aligned.csv        (align)
+  2. trajectory_pca_aligned.csv   (pca_align)
+  3. trajectory_aligned.csv       (align)
 
 The PNG is taken from:
   1. <input>/<input_name>.png  (e.g., data/floor_1/floor_1.png)
   2. <input>/floorplan.png
+
+If <input>/groundtruth.txt exists, it is rendered in orange as the reference
+trajectory (cam0 pose in map; same units / convention as our output).
 """
 
-import csv
 import tempfile
 from pathlib import Path
 from typing import Tuple
 
-import numpy as np
-
 # Force a non-interactive backend before pyplot is imported - matplotlib must
 # not try to open a window when running headless.
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
@@ -64,6 +67,20 @@ class FloorplanOverlayStage(Stage):
         before_traj_path = None
         if traj_kind == "floor_aligned":
             try:
+                candidate = stage_output_path(config, "pca_align") / "trajectory_pca_aligned.csv"
+                if candidate.is_file():
+                    before_traj_path = candidate
+            except Exception:
+                pass
+            if before_traj_path is None:
+                try:
+                    candidate = stage_output_path(config, "align") / "trajectory_aligned.csv"
+                    if candidate.is_file():
+                        before_traj_path = candidate
+                except Exception:
+                    pass
+        elif traj_kind == "pca_aligned":
+            try:
                 candidate = stage_output_path(config, "align") / "trajectory_aligned.csv"
                 if candidate.is_file():
                     before_traj_path = candidate
@@ -80,9 +97,19 @@ class FloorplanOverlayStage(Stage):
         except Exception:
             pass
 
+        # Optional ground-truth trajectory from the input folder. Same TUM format
+        # as our aligned output; should overlay directly at 100 px/m.
+        gt_path = None
+        original_input_str = config.extra.get("current_input_path", "")
+        if original_input_str:
+            candidate = Path(original_input_str) / "groundtruth.txt"
+            if candidate.is_file():
+                gt_path = candidate
+
         traj_xy = _load_traj_xy(traj_path)
         before_xy = _load_traj_xy(before_traj_path) if before_traj_path is not None else None
         edges = _load_edges(edges_path) if edges_path is not None else None
+        gt_xy = _load_traj_xy(gt_path) if gt_path is not None else None
 
         stage_root = Path(
             tempfile.mkdtemp(prefix=f"{self.name}-", dir=runner.runtime_dir)
@@ -97,6 +124,7 @@ class FloorplanOverlayStage(Stage):
             traj_label=f"trajectory ({traj_kind})",
             before_xy_m=before_xy,
             edges_m=edges,
+            gt_xy_m=gt_xy,
             out_path=out_png,
             title=(
                 f"Floorplan overlay - {config.extra.get('current_input_name', 'run')} "
@@ -116,6 +144,11 @@ class FloorplanOverlayStage(Stage):
                 f"Floorplan edges: {edges_path} ({len(edges)} segments)"
                 if edges is not None
                 else "Floorplan edges: (none; rendering trajectory only)"
+            ),
+            (
+                f"Ground truth: {gt_path} ({len(gt_xy)} poses)"
+                if gt_xy is not None
+                else "Ground truth: (none; drop groundtruth.txt in the input folder to enable)"
             ),
             f"Pixels per meter: {PIXELS_PER_METER}",
             f"Output: {out_png}",
@@ -162,6 +195,15 @@ def _find_trajectory(input_dir: Path, config: StageConfig) -> Tuple[Path, str]:
             return path, "floor_aligned"
     except Exception:
         pass
+    candidate = input_dir / "trajectory_pca_aligned.csv"
+    if candidate.is_file():
+        return candidate, "pca_aligned"
+    try:
+        path = stage_output_path(config, "pca_align") / "trajectory_pca_aligned.csv"
+        if path.is_file():
+            return path, "pca_aligned"
+    except Exception:
+        pass
     try:
         path = stage_output_path(config, "align") / "trajectory_aligned.csv"
         if path.is_file():
@@ -170,7 +212,7 @@ def _find_trajectory(input_dir: Path, config: StageConfig) -> Tuple[Path, str]:
         pass
     raise FileNotFoundError(
         "No trajectory found. Expected floorplan_align/trajectory_floor_aligned.csv "
-        "or align/trajectory_aligned.csv"
+        "or pca_align/trajectory_pca_aligned.csv or align/trajectory_aligned.csv"
     )
 
 
@@ -220,6 +262,7 @@ def _render(
     traj_label: str,
     before_xy_m,
     edges_m,
+    gt_xy_m,
     out_path: Path,
     title: str,
 ) -> None:
@@ -240,6 +283,27 @@ def _render(
                 alpha=0.6,
                 zorder=2,
             )
+
+    if gt_xy_m is not None and len(gt_xy_m) > 0:
+        ax.plot(
+            gt_xy_m[:, 0] * PIXELS_PER_METER,
+            gt_xy_m[:, 1] * PIXELS_PER_METER,
+            color="#ff8800",
+            linewidth=2.2,
+            alpha=0.9,
+            label=f"ground truth ({len(gt_xy_m)} poses)",
+            zorder=3,
+        )
+        ax.scatter(
+            gt_xy_m[0, 0] * PIXELS_PER_METER,
+            gt_xy_m[0, 1] * PIXELS_PER_METER,
+            color="#ff8800",
+            marker="s",
+            s=70,
+            edgecolors="black",
+            linewidths=0.8,
+            zorder=5,
+        )
 
     if before_xy_m is not None and len(before_xy_m) > 0:
         ax.plot(

@@ -1,9 +1,10 @@
 """Rays stage - back-projects 2D line detections to 3D rays in the world frame.
 
 Adapted from rework/Floorplan-Alignment/src/vizualize_results_edge_alignment.py.
-The EUCM back-projection (`calculateRay`) and the per-edge frame-transform block
-(lines ~299-336 of the reference) are kept verbatim. Visualization and the
-subsequent rotation/translation correction live in floorplan_align.
+The EUCM back-projection (`calculateRay`) is kept verbatim. Since the upstream
+`align` stage now outputs cam0 pose directly (in map frame), this stage simply
+transforms cam-frame rays via T_wrld_cam taken straight from each pose row -
+no extrinsic composition required.
 """
 
 import csv
@@ -19,6 +20,7 @@ from .base import Stage, StageConfig, stage_output_path
 
 OUTPUT_CSV = "rays.csv"
 LINES_FILENAME = "lines.csv"
+PCA_ALIGNED_TRAJ_FILENAME = "trajectory_pca_aligned.csv"
 ALIGNED_TRAJ_FILENAME = "trajectory_aligned.csv"
 SLAM_TRAJ_FILENAME = "trajectory.txt"
 
@@ -32,16 +34,6 @@ FU = 465.2979536302252
 FV = 465.3194431883040
 PU = 730.0455886686005
 PV = 720.14270076712060
-
-# T_cam_imu: cam0 frame <- IMU frame. Same source as above.
-T_CAM_IMU = np.array(
-    [
-        [0.017214474772216132, -0.0008034642120502422, -0.9998514971252359, 0.020670851120764513],
-        [0.9998263174555488, -0.007128426214556394, 0.017219769539067287, 0.015539085669546057],
-        [-0.007141203091335369, -0.9999742696614562, 0.0006806125511055194, -0.01575188948566258],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-)
 
 # Magnitude is arbitrary; we only use ray *direction* downstream. Matches the
 # reference script's `ray_scale = 2000.0` to keep numbers in a comparable range.
@@ -74,11 +66,11 @@ class RaysStage(Stage):
         lines = _load_lines(lines_csv)
         pose_t, pose_xyz, pose_q = _load_trajectory(traj_csv)
 
-        # T_imu_cam: inverse of T_cam_imu. Used per-frame to map cam-frame rays
-        # to the IMU frame before the SLAM pose lifts them to world frame.
-        T_imu_cam = np.eye(4)
-        T_imu_cam[:3, :3] = T_CAM_IMU[:3, :3].T
-        T_imu_cam[:3, 3] = -T_CAM_IMU[:3, :3].T @ T_CAM_IMU[:3, 3]
+        if traj_kind not in {"aligned", "pca_aligned"}:
+            print(
+                f"[{self.name}] WARNING: using {traj_kind} trajectory; "
+                "rays expect cam0 poses in world from `align`, not raw IMU poses"
+            )
 
         stage_root = Path(
             tempfile.mkdtemp(prefix=f"{self.name}-", dir=runner.runtime_dir)
@@ -107,14 +99,15 @@ class RaysStage(Stage):
                     skipped_nan += 1
                     continue
 
-                # Nearest-timestamp pose (matches the reference script).
+                # Nearest-timestamp pose (matches the reference script). The
+                # aligned trajectory is already cam0-in-world after the align
+                # stage chains through T_cam_imu, so this pose IS T_wrld_cam.
                 idx = int(np.argmin(np.abs(pose_t - ts)))
-                R_wrld_imu = quat_to_rot(*pose_q[idx])
-                T_wrld_imu = np.eye(4)
-                T_wrld_imu[:3, :3] = R_wrld_imu
-                T_wrld_imu[:3, 3] = pose_xyz[idx]
+                R_wrld_cam = quat_to_rot(*pose_q[idx])
+                T_wrld_cam = np.eye(4)
+                T_wrld_cam[:3, :3] = R_wrld_cam
+                T_wrld_cam[:3, 3] = pose_xyz[idx]
 
-                T_wrld_cam = T_wrld_imu @ T_imu_cam
                 origin = T_wrld_cam[:3, 3]
                 ray1_wrld = (T_wrld_cam @ ray1_cam)[:3, 0]
                 ray2_wrld = (T_wrld_cam @ ray2_cam)[:3, 0]
@@ -162,7 +155,13 @@ def _find_lines_csv(input_dir: Path, config: StageConfig) -> Path:
 
 
 def _find_trajectory(config: StageConfig) -> Tuple[Path, str]:
-    """Prefer align's trajectory_aligned.csv; fall back to slam's raw trajectory.txt."""
+    """Prefer PCA/align CSV trajectories; fall back to slam's raw trajectory.txt."""
+    try:
+        pca_aligned = stage_output_path(config, "pca_align") / PCA_ALIGNED_TRAJ_FILENAME
+        if pca_aligned.is_file():
+            return pca_aligned, "pca_aligned"
+    except Exception:
+        pass
     try:
         aligned = stage_output_path(config, "align") / ALIGNED_TRAJ_FILENAME
         if aligned.is_file():
@@ -176,7 +175,8 @@ def _find_trajectory(config: StageConfig) -> Tuple[Path, str]:
     except Exception:
         pass
     raise FileNotFoundError(
-        "No trajectory found. Expected align/trajectory_aligned.csv or slam/trajectory.txt"
+        "No trajectory found. Expected pca_align/trajectory_pca_aligned.csv, "
+        "align/trajectory_aligned.csv, or slam/trajectory.txt"
     )
 
 

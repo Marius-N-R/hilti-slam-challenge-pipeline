@@ -6,9 +6,12 @@ This pipeline orchestrates the SLAM processing workflow in containers.
 Data files (rosbags) remain outside the container and are mounted at runtime.
 
 Available stages:
+  - all      : Run the complete pipeline in dependency order
   - slam     : Run OpenVINS visual-inertial odometry
+  - pca_align: Optionally PCA-align the CSV trajectory after initial alignment
 
 Usage:
+    python pipeline.py --stages all --include-pca-align --input data/floor_1 --output ./out
     python pipeline.py --stages slam --input data/floor_1 --output ./out
     python pipeline.py --list-stages
 
@@ -43,22 +46,32 @@ def run_pipeline(
     output_dir: str,
     config: StageConfig,
     container_runtime: str,
+    include_pca_align: bool = False,
 ):
     """Run the pipeline with the given stages and inputs."""
+    try:
+        requested_stage_names = list(stage_names)
+        stage_names = expand_stage_names(stage_names)
+        if include_pca_align:
+            stage_names = include_stage_after(
+                stage_names,
+                stage_name="pca_align",
+                after_stage_name="align",
+            )
+    except ValueError as exc:
+        print(f"[error] {exc}")
+        print("Use --list-stages to see available stages")
+        return 1
 
     print("=" * 60)
     print("Hilti-Trimble SLAM Challenge Pipeline")
     print("=" * 60)
     print(f"Stages: {', '.join(stage_names)}")
+    if requested_stage_names != stage_names:
+        print(f"Requested stages: {', '.join(requested_stage_names)}")
     print(f"Input bags: {len(input_bags)}")
     print(f"Output dir: {output_dir}")
     print("=" * 60)
-
-    for name in stage_names:
-        if registry.get(name) is None:
-            print(f"[error] Unknown stage: {name}")
-            print("Use --list-stages to see available stages")
-            return 1
 
     runner = ContainerBackend(runtime=container_runtime)
 
@@ -153,6 +166,53 @@ def run_pipeline(
     return 0
 
 
+def include_stage_after(
+    stage_names: List[str],
+    stage_name: str,
+    after_stage_name: str,
+) -> List[str]:
+    """Return stage_names with stage_name inserted after after_stage_name if missing."""
+    if stage_name in stage_names:
+        return stage_names
+    if registry.get(stage_name) is None:
+        raise ValueError(f"Unknown stage: {stage_name}")
+    try:
+        insert_at = stage_names.index(after_stage_name) + 1
+    except ValueError as exc:
+        raise ValueError(
+            f"Cannot include {stage_name}: {after_stage_name} is not in the stage list"
+        ) from exc
+    return [*stage_names[:insert_at], stage_name, *stage_names[insert_at:]]
+
+
+def expand_stage_names(stage_names: List[str]) -> List[str]:
+    """Expand aggregate stage names into concrete stage names."""
+    expanded: list[str] = []
+    stack: list[str] = []
+
+    def visit(name: str) -> None:
+        stage = registry.get(name)
+        if stage is None:
+            raise ValueError(f"Unknown stage: {name}")
+        if name in stack:
+            cycle = " -> ".join([*stack, name])
+            raise ValueError(f"Aggregate stage cycle detected: {cycle}")
+
+        children = stage.expanded_stage_names
+        if not children:
+            expanded.append(name)
+            return
+
+        stack.append(name)
+        for child_name in children:
+            visit(child_name)
+        stack.pop()
+
+    for stage_name in stage_names:
+        visit(stage_name)
+    return expanded
+
+
 def count_trajectory_poses(trajectory_path: Path) -> int:
     """Count valid pose lines in trajectory.txt."""
     if not trajectory_path.exists():
@@ -222,6 +282,12 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+    # Run the complete dependency-ordered pipeline on one input folder
+    python pipeline.py --stages all --input data/floor_1 --output ./out
+
+    # Run the complete pipeline with PCA alignment after trajectory CSV conversion
+    python pipeline.py --stages all --include-pca-align --input data/floor_1 --output ./out
+
     # Run SLAM on a single run folder (which contains a 'rosbag/' subdir)
     python pipeline.py --stages slam --input data/floor_1 --output ./out
 
@@ -268,6 +334,12 @@ Adding Custom Stages:
         "--list-stages", "-l",
         action="store_true",
         help="List available pipeline stages and exit"
+    )
+
+    parser.add_argument(
+        "--include-pca-align",
+        action="store_true",
+        help="When using aggregate stages, insert pca_align after align",
     )
 
     slam_group = parser.add_argument_group("SLAM options")
@@ -339,6 +411,7 @@ def main():
         output_dir=args.output,
         config=config,
         container_runtime=args.container_runtime,
+        include_pca_align=args.include_pca_align,
     )
 
 

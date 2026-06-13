@@ -5,6 +5,24 @@ from typing import Tuple
 import numpy as np
 
 
+# T_cam_imu: cam0 frame <- IMU frame (4x4 SE(3)).
+# Pulled verbatim from rework/Floorplan-Alignment/intrinsics/kalibr_imucam_chain.yaml
+# via the reference scripts. Used by:
+#   * align: SLAM publishes /ov_msckf/poseimu (IMU pose), the challenge GT init
+#     is cam0 pose -> we need this extrinsic to chain them correctly.
+#   * rays: back-projects 2D pixels in cam0 frame to 3D rays, transforming via
+#     this extrinsic into the IMU/world frame.
+T_CAM_IMU = np.array(
+    [
+        [0.017214474772216132, -0.0008034642120502422, -0.9998514971252359, 0.020670851120764513],
+        [0.9998263174555488, -0.007128426214556394, 0.017219769539067287, 0.015539085669546057],
+        [-0.007141203091335369, -0.9999742696614562, 0.0006806125511055194, -0.01575188948566258],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+T_IMU_CAM = np.linalg.inv(T_CAM_IMU)
+
+
 def quat_to_rot(qx: float, qy: float, qz: float, qw: float) -> np.ndarray:
     n = qx * qx + qy * qy + qz * qz + qw * qw
     if n < 1e-12:

@@ -116,6 +116,18 @@ apptainer build slam-workspace.sif container_defs/workspace.def
 # Show available stages
 python pipeline.py --list-stages
 
+# Run the complete dependency-ordered pipeline on one run folder
+python pipeline.py --stages all \
+  --input data/floor_1 \
+  --output ./out \
+  --slam-rate 0.5
+
+# Run the complete pipeline with optional PCA alignment after align
+python pipeline.py --stages all --include-pca-align \
+  --input data/floor_1 \
+  --output ./out \
+  --slam-rate 0.5
+
 # Run SLAM (input is a run folder containing a 'rosbag/' subdir)
 python pipeline.py --stages slam \
   --input data/floor_1 \
@@ -132,12 +144,13 @@ python pipeline.py --help
 
 Key arguments:
 
-- `--stages/-s`: ordered stage list to run (default: `slam`)
+- `--stages/-s`: ordered stage list to run (default: `slam`). Use `all` to run the complete pipeline.
 - `--input/-i`: one or more run folders that each contain a `rosbag/` subdir (supports quoted globs)
 - `--output/-o`: output root directory (default: `./out`). Each stage writes to `<output>/<stage>/<input_folder_name>/`.
 - `--container-runtime {docker,apptainer}`: execution backend
   `apptainer` mode accepts either the `apptainer` or `singularity` host binary
 - `--list-stages/-l`: print stages and exit
+- `--include-pca-align`: when using `all`, insert `pca_align` immediately after `align`
 - `--verbose/-v`: extra console output
 
 SLAM options:
@@ -149,7 +162,15 @@ SLAM options:
 
 | Stage | Purpose | Typical Input | Typical Output |
 |---|---|---|---|
+| `all` | Expand to the complete dependency-ordered pipeline | Run folder | All stage artifacts |
 | `slam` | Run OpenVINS visual-inertial SLAM | ROS2 bag with `cam0/cam1 + imu` | `trajectory.txt` + SLAM logs |
+| `align` | Align SLAM trajectory to `initial-pos.txt` | `slam` output + run folder | `trajectory_aligned.csv` |
+| `pca_align` | Reorient the aligned CSV trajectory using PCA axes | `align` output | `trajectory_pca_aligned.csv` + PCA diagnostics |
+| `line_extractor` | Extract near-horizontal cam0 line detections | Run folder ROS2 bag | `lines.csv` |
+| `floorplan_edges` | Extract wall segments from the run DXF | Run folder DXF | `floorplan_edges.csv` |
+| `rays` | Back-project line detections using aligned poses | `line_extractor` + `pca_align` or `align` outputs | `rays.csv` |
+| `floorplan_align` | Refine trajectory against floorplan edges | `rays`, `floorplan_edges`, `pca_align` or `align` outputs | `trajectory_floor_aligned.csv` |
+| `floorplan_overlay` | Render final trajectory on the floorplan PNG | floorplan PNG + final trajectory | `overlay.png` |
 
 ## Smart Skip
 
@@ -267,6 +288,24 @@ python pipeline.py --stages slam \
 
 ```bash
 python pipeline.py --stages slam \
+  --input data/floor_1 \
+  --output ./out \
+  --slam-rate 0.5
+```
+
+### Run the complete pipeline
+
+```bash
+python pipeline.py --stages all \
+  --input data/floor_1 \
+  --output ./out \
+  --slam-rate 0.5
+```
+
+### Run the complete pipeline with PCA alignment
+
+```bash
+python pipeline.py --stages all --include-pca-align \
   --input data/floor_1 \
   --output ./out \
   --slam-rate 0.5

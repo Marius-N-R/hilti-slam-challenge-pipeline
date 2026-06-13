@@ -8,7 +8,8 @@ Visualization (matplotlib sliders, 3D triad plots) is dropped.
 Inputs:
   * rays.csv from `rays` stage (origin + two ray endpoints per detected line)
   * floorplan_edges.csv from `floorplan_edges` stage (2D wall segments in meters)
-  * trajectory_aligned.csv from `align` stage (start-pose-anchored trajectory)
+  * trajectory_pca_aligned.csv from `pca_align` when present, otherwise
+    trajectory_aligned.csv from `align` (start-pose-anchored trajectory)
 
 Output:
   * trajectory_floor_aligned.csv: the input trajectory with the residual SE(3)
@@ -26,6 +27,8 @@ from ._geometry import quat_to_rot, rot_to_quat
 from .base import Stage, StageConfig, stage_output_path
 
 OUTPUT_CSV = "trajectory_floor_aligned.csv"
+PCA_ALIGNED_TRAJ_CSV = "trajectory_pca_aligned.csv"
+ALIGNED_TRAJ_CSV = "trajectory_aligned.csv"
 
 # Search ranges. Theta range matches the reference (-20..+20 deg). For
 # translations we depart from the reference because:
@@ -67,7 +70,7 @@ class FloorplanAlignStage(Stage):
     def run(self, runner, input_dir: Path, config: StageConfig) -> Path:
         rays_path = _resolve(input_dir, config, "rays", "rays.csv")
         edges_path = _resolve(None, config, "floorplan_edges", "floorplan_edges.csv")
-        traj_path = _resolve(None, config, "align", "trajectory_aligned.csv")
+        traj_path = _resolve_trajectory(config)
 
         rays = _load_rays(rays_path)
         edges = _load_edges(edges_path)
@@ -151,6 +154,16 @@ def _resolve(input_dir, config, stage_name, filename):
     raise FileNotFoundError(
         f"Could not find {filename} (looked in current_data and the {stage_name} output dir)"
     )
+
+
+def _resolve_trajectory(config):
+    try:
+        path = stage_output_path(config, "pca_align") / PCA_ALIGNED_TRAJ_CSV
+        if path.is_file():
+            return path
+    except Exception:
+        pass
+    return _resolve(None, config, "align", ALIGNED_TRAJ_CSV)
 
 
 def _read_numeric_rows(path: Path, expected_cols: int) -> np.ndarray:

@@ -1,42 +1,42 @@
 {
-  "estimate_kind": "floor_aligned",
-  "estimate_path": "/home/felix/Documents/Projects/3Dvis/rework/hilti-slam-challenge-pipeline/out/floorplan_align/floor_1/trajectory_floor_aligned.csv",
-  "estimate_poses": 8179,
+  "estimate_kind": "combined_aligned",
+  "estimate_path": "/home/felix/Documents/Projects/3Dvis/rework/hilti-slam-challenge-pipeline/out/combined_align/floor_1/trajectory_combined_aligned.csv",
+  "estimate_poses": 4008,
   "groundtruth_path": "/home/felix/Documents/Projects/3Dvis/rework/hilti-slam-challenge-pipeline/data/floor_1/groundtruth.txt",
   "groundtruth_poses": 3923,
-  "matched_poses": 3870,
+  "matched_poses": 3925,
   "max_time_delta_s": 0.05,
   "time_delta_abs": {
-    "max_s": 0.027351959000952775,
-    "mean_s": 0.0062004409609915795,
-    "median_s": 0.006304344500676962,
-    "p90_s": 0.006730207500731921,
-    "p95_s": 0.0068445897490164494,
-    "rmse_s": 0.006233992627939909
+    "max_s": 0.04099692499949015,
+    "mean_s": 0.005081836153646697,
+    "median_s": 0.0050131230000260985,
+    "p90_s": 0.006106259799344115,
+    "p95_s": 0.007371415400120895,
+    "rmse_s": 0.005196906738835317
   },
-  "unmatched_estimate_poses": 4309,
+  "unmatched_estimate_poses": 83,
   "xy": {
-    "max_m": 53.64602192640645,
-    "mean_m": 24.595517644820696,
-    "median_m": 24.877710465978662,
-    "p90_m": 44.41699821379746,
-    "p95_m": 48.741557764453844,
-    "rmse_m": 27.892813602748053
+    "max_m": 5.955081487651238,
+    "mean_m": 5.185584500328923,
+    "median_m": 5.180979580770814,
+    "p90_m": 5.67276752828085,
+    "p95_m": 5.730108855326227,
+    "rmse_m": 5.198833649842092
   },
   "xyz": {
-    "max_m": 53.64830137045377,
-    "mean_m": 24.60198912922045,
-    "median_m": 24.883854386370146,
-    "p90_m": 44.41952138440364,
-    "p95_m": 48.74387321772594,
-    "rmse_m": 27.896958097513146
+    "max_m": 5.955794662886422,
+    "mean_m": 5.186688977862549,
+    "median_m": 5.181856150040547,
+    "p90_m": 5.6731573396082355,
+    "p95_m": 5.730574773573839,
+    "rmse_m": 5.19991331168618
   },
   "z_abs": {
-    "max_m": 0.8446863644664047,
-    "mean_m": 0.469585646555333,
-    "median_m": 0.45200286974765647,
-    "p90_m": 0.6039366718621834,
-    "p95_m": 0.6489472525340284,
-    "rmse_m": 0.4808538413670243
+    "max_m": 0.1934967651063626,
+    "mean_m": 0.09799444632819145,
+    "median_m": 0.09049747003258557,
+    "p90_m": 0.15526375497580502,
+    "p95_m": 0.17076664289600918,
+    "rmse_m": 0.1059581536301294
   }
 }

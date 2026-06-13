@@ -355,6 +355,66 @@ Adding Custom Stages:
         help="Maximum timestamp difference for final_eval matches in seconds (default: 0.05)",
     )
 
+    window_group = parser.add_argument_group("Parallel Window image-flow options")
+    window_group.add_argument(
+        "--image-frames",
+        default="",
+        help="Comma-separated frame numbers/ranges for image_selector, e.g. 10,20,30-35",
+    )
+    window_group.add_argument(
+        "--image-topic",
+        default="/cam0/image_raw/compressed",
+        help="Preferred image topic for image_selector",
+    )
+    window_group.add_argument(
+        "--window-root",
+        default="third_party/window",
+        help="Path to the Window source directory (default: third_party/window)",
+    )
+    window_group.add_argument(
+        "--window-prompt",
+        default="windows",
+        help='GroundingDINO prompt for window_dino (default: "windows")',
+    )
+    window_group.add_argument(
+        "--window-device",
+        default="auto",
+        choices=["auto", "cpu", "cuda"],
+        help="Device for Window DINO/SAM stages (default: auto)",
+    )
+    window_group.add_argument(
+        "--window-box-threshold",
+        type=float,
+        default=0.3,
+        help="GroundingDINO box threshold for window_dino (default: 0.3)",
+    )
+    window_group.add_argument(
+        "--window-text-threshold",
+        type=float,
+        default=0.25,
+        help="GroundingDINO text threshold for window_dino (default: 0.25)",
+    )
+    window_group.add_argument(
+        "--window-camera-height",
+        type=float,
+        default=2.0,
+        help="Camera height in meters for window_pose (default: 2.0)",
+    )
+
+    combined_group = parser.add_argument_group("Combined realignment options")
+    combined_group.add_argument(
+        "--floorplan-realign-weight",
+        type=float,
+        default=1.0,
+        help="Weight for the floorplan realignment in combined_align (default: 1.0)",
+    )
+    combined_group.add_argument(
+        "--window-realign-weight",
+        type=float,
+        default=1.0,
+        help="Weight for the Window realignment in combined_align (default: 1.0)",
+    )
+
     slam_group = parser.add_argument_group("SLAM options")
     slam_group.add_argument(
         "--slam-rate",
@@ -390,6 +450,25 @@ def expand_input_paths(patterns: List[str]) -> List[str]:
     return expanded
 
 
+def parse_frame_numbers(raw: str) -> List[int]:
+    """Parse comma-separated frame numbers and inclusive ranges."""
+    frames: set[int] = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "-" in item:
+            start_raw, end_raw = item.split("-", 1)
+            start = int(start_raw)
+            end = int(end_raw)
+            if end < start:
+                raise ValueError(f"Invalid frame range: {item}")
+            frames.update(range(start, end + 1))
+        else:
+            frames.add(int(item))
+    return sorted(frames)
+
+
 def main():
     args = parse_args()
 
@@ -411,6 +490,12 @@ def main():
         print("Error: No input bags found matching the given patterns")
         return 1
 
+    try:
+        image_frame_numbers = parse_frame_numbers(args.image_frames)
+    except ValueError as exc:
+        print(f"Error: invalid --image-frames value: {exc}")
+        return 1
+
     config = StageConfig(
         verbose=args.verbose,
         input_root=str(Path(args.output).resolve()),
@@ -418,6 +503,16 @@ def main():
         slam_timeout=args.slam_timeout,
         align_start_position=args.align_start_position,
         eval_max_time_delta=args.eval_max_dt,
+        image_frame_numbers=image_frame_numbers,
+        image_topic=args.image_topic,
+        window_root=args.window_root,
+        window_prompt=args.window_prompt,
+        window_device=args.window_device,
+        window_box_threshold=args.window_box_threshold,
+        window_text_threshold=args.window_text_threshold,
+        window_camera_height=args.window_camera_height,
+        floorplan_realign_weight=args.floorplan_realign_weight,
+        window_realign_weight=args.window_realign_weight,
     )
 
     return run_pipeline(

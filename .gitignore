@@ -28,6 +28,16 @@ ENV/
 .apptainer-cache/
 .claude/
 
+# Downloaded model weights/checkpoints must stay out of Git
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+third_party/window/**/weights/
+third_party/window/**/checkpoints/
+third_party/window/**/.cache/
+third_party/window/**/*.so
+
 # IDE/editor files
 .idea/
 .vscode/
@@ -36,6 +46,7 @@ ENV/
 .DS_Store
 
 # Pipeline runtime outputs
+out/
 output/
 results/
 results_debug/

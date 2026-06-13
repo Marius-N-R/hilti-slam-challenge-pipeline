@@ -15,7 +15,9 @@ MATCHED_ERRORS_CSV = "matched_errors.csv"
 SUMMARY_JSON = "summary.json"
 
 TRAJECTORY_CANDIDATES = [
+    ("combined_align", "trajectory_combined_aligned.csv", "combined_aligned"),
     ("floorplan_align", "trajectory_floor_aligned.csv", "floor_aligned"),
+    ("window_align", "trajectory_window_aligned.csv", "window_aligned"),
     ("pca_align", "trajectory_pca_aligned.csv", "pca_aligned"),
     ("align", "trajectory_aligned.csv", "aligned"),
     ("slam", "trajectory.txt", "slam"),

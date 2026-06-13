@@ -1,14 +1,14 @@
 
 Files:             rosbag.db3
-Bag size:          6.5 GiB
+Bag size:          3.7 GiB
 Storage id:        sqlite3
 ROS Distro:        jazzy
-Duration:          280.036822000s
-Start:             Jan  1 1970 02:46:38.739400000 (9998.739400000)
-End:               Jan  1 1970 02:51:18.776222000 (10278.776222000)
-Messages:          294818
-Topic information: Topic: /cam0/image_raw/compressed | Type: sensor_msgs/msg/CompressedImage | Count: 8329 | Serialization Format: cdr
-                   Topic: /cam1/image_raw/compressed | Type: sensor_msgs/msg/CompressedImage | Count: 8329 | Serialization Format: cdr
-                   Topic: /imu/data_raw | Type: sensor_msgs/msg/Imu | Count: 278160 | Serialization Format: cdr
+Duration:          136.136849000s
+Start:             Jan  1 1970 02:46:39.249451000 (9999.249451000)
+End:               Jan  1 1970 02:48:55.386300000 (10135.386300000)
+Messages:          143596
+Topic information: Topic: /cam0/image_raw/compressed | Type: sensor_msgs/msg/CompressedImage | Count: 4038 | Serialization Format: cdr
+                   Topic: /cam1/image_raw/compressed | Type: sensor_msgs/msg/CompressedImage | Count: 4038 | Serialization Format: cdr
+                   Topic: /imu/data_raw | Type: sensor_msgs/msg/Imu | Count: 135520 | Serialization Format: cdr
 Service:           0
 Service information: 

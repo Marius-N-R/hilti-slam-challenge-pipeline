@@ -37,6 +37,18 @@ class StageConfig:
     # Evaluation options
     eval_max_time_delta: float = 0.05
 
+    # Parallel Window image-processing flow
+    image_frame_numbers: List[int] = field(default_factory=list)
+    image_topic: str = "/cam0/image_raw/compressed"
+    window_root: str = "third_party/window"
+    window_prompt: str = "windows"
+    window_device: str = "auto"
+    window_box_threshold: float = 0.3
+    window_text_threshold: float = 0.25
+    window_camera_height: float = 2.0
+    floorplan_realign_weight: float = 1.0
+    window_realign_weight: float = 1.0
+
     # Custom options (for extensibility)
     extra: Dict[str, Any] = field(default_factory=dict)
 

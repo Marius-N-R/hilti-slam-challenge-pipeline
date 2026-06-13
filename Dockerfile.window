@@ -1,0 +1,32 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MPLBACKEND=Agg
+ENV PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    python3.12 \
+    python3.12-dev \
+    python3.12-venv \
+    python3-pip \
+    libglib2.0-0 \
+    libgl1 \
+    libgomp1 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libstdc++6 \
+    libjpeg-turbo8 \
+    libpng16-16 \
+    libopenblas0-pthread \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-window.txt /tmp/requirements-window.txt
+RUN python3.12 -m venv /opt/window_venv \
+    && /opt/window_venv/bin/python -m pip install --upgrade pip setuptools wheel \
+    && /opt/window_venv/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision \
+    && /opt/window_venv/bin/python -m pip install -r /tmp/requirements-window.txt \
+    && rm -rf /root/.cache/pip /tmp/requirements-window.txt
+
+WORKDIR /workspace

@@ -33,10 +33,19 @@ PROFILE_IMAGES = {
         docker_archive=CACHE_DIR / "slam-workspace.tar",
         apptainer_image=CACHE_DIR / "slam-workspace.sif",
     ),
+    "window": ProfileImage(
+        profile="window",
+        docker_image="window-workspace:repo-local-v2",
+        dockerfile=ROOT / "Dockerfile.window",
+        apptainer_def=ROOT / "container_defs" / "window.def",
+        docker_archive=CACHE_DIR / "window-workspace-repo-local-v2.tar",
+        apptainer_image=CACHE_DIR / "window-workspace-repo-local-v2.sif",
+    ),
 }
 
 APPTAINER_IMAGE_OVERRIDE_ENV = {
     "ros": "PIPELINE_APPTAINER_ROS_IMAGE",
+    "window": "PIPELINE_APPTAINER_WINDOW_IMAGE",
 }
 
 

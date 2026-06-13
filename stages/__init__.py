@@ -9,6 +9,7 @@ from .align import AlignStage
 from .base import Stage, StageRegistry
 from .floorplan_align import FloorplanAlignStage
 from .floorplan_edges import FloorplanEdgesStage
+from .floorplan_overlay import FloorplanOverlayStage
 from .line_extractor import LineExtractorStage
 from .rays import RaysStage
 from .slam import SlamStage
@@ -20,6 +21,7 @@ registry.register(LineExtractorStage())
 registry.register(FloorplanEdgesStage())
 registry.register(RaysStage())
 registry.register(FloorplanAlignStage())
+registry.register(FloorplanOverlayStage())
 
 __all__ = [
     "Stage",
@@ -31,4 +33,5 @@ __all__ = [
     "FloorplanEdgesStage",
     "RaysStage",
     "FloorplanAlignStage",
+    "FloorplanOverlayStage",
 ]

@@ -3,3 +3,4 @@
 # container's own Python; nothing additional is required on the host for them.
 numpy>=1.24
 ezdxf>=1.0
+matplotlib>=3.5

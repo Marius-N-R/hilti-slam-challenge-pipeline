@@ -52,7 +52,7 @@ results/
 results_debug/
 results_overlay_test/
 
-data/
+data/floor_1/rosbag/
 
 # Generated logs and temporary diagnostics
 *.log

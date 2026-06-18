@@ -1,8 +1,8 @@
 {
   "estimate_kind": "combined_aligned",
-  "estimate_path": "/home/felix/Documents/Projects/3Dvis/rework/hilti-slam-challenge-pipeline/out/combined_align/floor_1/trajectory_combined_aligned.csv",
+  "estimate_path": "/home/felix/hilti-slam-challenge-pipeline/out/combined_align/floor_1/trajectory_combined_aligned.csv",
   "estimate_poses": 4008,
-  "groundtruth_path": "/home/felix/Documents/Projects/3Dvis/rework/hilti-slam-challenge-pipeline/data/floor_1/groundtruth.txt",
+  "groundtruth_path": "/home/felix/hilti-slam-challenge-pipeline/data/floor_1/groundtruth.txt",
   "groundtruth_poses": 3923,
   "matched_poses": 3925,
   "max_time_delta_s": 0.05,
@@ -16,27 +16,27 @@
   },
   "unmatched_estimate_poses": 83,
   "xy": {
-    "max_m": 4.239770712034264,
-    "mean_m": 3.869659820685777,
-    "median_m": 3.918863016066649,
-    "p90_m": 4.099877374954686,
-    "p95_m": 4.1663501813121275,
-    "rmse_m": 3.8753279409850774
+    "max_m": 26.798198293958116,
+    "mean_m": 13.111921875833653,
+    "median_m": 12.093454874808469,
+    "p90_m": 22.56087700786657,
+    "p95_m": 25.095152766243167,
+    "rmse_m": 14.510319833102356
   },
   "xyz": {
-    "max_m": 4.240422015561892,
-    "mean_m": 3.870007723816158,
-    "median_m": 3.919062948489687,
-    "p90_m": 4.100130342493525,
-    "p95_m": 4.166975473279807,
-    "rmse_m": 3.875683042662996
+    "max_m": 26.921648473383193,
+    "mean_m": 13.429017474269898,
+    "median_m": 12.347171534690002,
+    "p90_m": 22.704513442617493,
+    "p95_m": 25.225372364336646,
+    "rmse_m": 14.729066272152998
   },
   "z_abs": {
-    "max_m": 0.11361878085870092,
-    "mean_m": 0.047311771261294454,
-    "median_m": 0.044870564055787154,
-    "p90_m": 0.07930886656017008,
-    "p95_m": 0.08585489217430259,
-    "rmse_m": 0.05246329198454061
+    "max_m": 2.5965185054105366,
+    "mean_m": 2.528927851258729,
+    "median_m": 2.5311410779442127,
+    "p90_m": 2.5590648425327887,
+    "p95_m": 2.565053822323903,
+    "rmse_m": 2.5290337266536107
   }
 }

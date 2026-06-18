@@ -1,8 +1,10 @@
-"""SaveTF stage - extracts the map->global static TF from the input rosbag.
+"""SaveTF stage - extracts the map->global static TF.
 
-Runs in the ROS container (needs rosbag2_py / rclpy). Reads /tf_static directly
-from the bag without replaying it; writes orientation.json in the same format
-as the Floorplan-Alignment save_tf.py node.
+If init_pos.txt is available in the original input folder, computes T_map_global
+by matching it with the SLAM trajectory. Otherwise, falls back to reading /tf_static
+from the rosbag.
+
+Writes orientation.json in the same format as the Floorplan-Alignment save_tf.py node.
 
 The stage passes through all files from its input (slam output) and adds
 orientation.json, so the align stage that follows can read trajectory.txt and
@@ -14,7 +16,7 @@ import tempfile
 from pathlib import Path
 from textwrap import dedent
 
-from runtime_backend import ExecutionSpec
+from runtime_backend import BindMount, ExecutionSpec
 
 from .base import Stage, StageConfig
 
@@ -52,7 +54,8 @@ class SaveTfStage(Stage):
         original_input_str = config.extra.get("current_input_path", "")
         if not original_input_str:
             raise RuntimeError("Original input path not set in config.extra")
-        bag_dir = Path(original_input_str) / "rosbag"
+        original_input_path = Path(original_input_str)
+        bag_dir = original_input_path / "rosbag"
         if not bag_dir.is_dir():
             raise FileNotFoundError(f"Expected rosbag/ subdirectory at {bag_dir}")
 
@@ -68,6 +71,17 @@ class SaveTfStage(Stage):
             exit $STATUS
         """)
 
+        # Mount SLAM output for trajectory.txt and original input for init_pos.txt
+        extra_mounts = [
+            BindMount(source=original_input_path, target="/original_input", read_only=True),
+        ]
+
+        # Also mount the SLAM output directory if it exists (contains trajectory.txt)
+        if input_dir.exists():
+            extra_mounts.append(
+                BindMount(source=input_dir, target="/slam_output", read_only=True)
+            )
+
         container_output = runner.run_stage(
             container_profile=self.container_profile,
             input_dir=bag_dir,
@@ -79,6 +93,7 @@ class SaveTfStage(Stage):
                     "save_tf_runner.py": runner_script,
                     "run_save_tf.sh": wrapper,
                 },
+                extra_mounts=extra_mounts,
             ),
         )
 

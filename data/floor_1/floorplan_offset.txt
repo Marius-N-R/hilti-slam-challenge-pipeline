@@ -1,0 +1,4 @@
+# Floorplan offset in meters: offset_x offset_y
+# Applied to all DXF wall segment coordinates before alignment.
+# Shifts the floorplan coordinate origin to align with the map frame.
+52.0 -12.0

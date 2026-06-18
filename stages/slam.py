@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from runtime_backend import ExecutionSpec
+from runtime_backend import BindMount, ExecutionSpec
 
 from .base import Stage, StageConfig
 
@@ -44,8 +44,18 @@ class SlamStage(Stage):
                 f"Expected 'rosbag' subdirectory inside {input_dir}"
             )
 
+        # Get original input path for accessing init_pos.txt
+        original_input_str = config.extra.get("current_input_path", "")
+        if not original_input_str:
+            raise RuntimeError("Original input path not set in config.extra")
+        original_input_path = Path(original_input_str)
+
         runner_path = Path(__file__).parent / "slam_runner.py"
         runner_script = runner_path.read_text()
+
+        # Load static TF publisher script
+        static_tf_publisher_path = Path(__file__).parent / "static_tf_publisher_custom.py"
+        static_tf_publisher_script = static_tf_publisher_path.read_text()
 
         # Create wrapper that handles output capture
         wrapper = f"""#!/bin/bash
@@ -67,7 +77,11 @@ exit 0
                 command=["/bin/bash", "/stage_runtime/run_slam.sh"],
                 files={
                     "slam_runner.py": runner_script,
+                    "static_tf_publisher_custom.py": static_tf_publisher_script,
                     "run_slam.sh": wrapper,
                 },
+                extra_mounts=[
+                    BindMount(source=original_input_path, target="/original_input", read_only=True),
+                ],
             ),
         )

@@ -315,6 +315,29 @@ def main() -> None:
     wait_for_topic_subscribers(ros_setup, "/cam0/image_raw")
     wait_for_topic_subscribers(ros_setup, "/cam1/image_raw")
 
+    # Check if we need to launch static TF publisher for map->global transform
+    init_pos_file = Path("/original_input/init_pos.txt")
+    static_tf_publisher = None
+    static_tf_log_handle = None
+    if init_pos_file.exists():
+        log(f"Found {init_pos_file}, starting static TF publisher for map->global transform")
+        STATIC_TF_LOG = Path("/output/static_tf_publisher.log")
+        static_tf_log_handle = STATIC_TF_LOG.open("w", encoding="utf-8")
+        static_tf_publisher = subprocess.Popen(
+            f"{ros_setup} && python3 /stage_runtime/static_tf_publisher_custom.py {init_pos_file}",
+            shell=True,
+            executable="/bin/bash",
+            stdout=static_tf_log_handle,
+            stderr=subprocess.STDOUT,
+        )
+        time.sleep(2)
+        if static_tf_publisher.poll() is not None:
+            log(f"WARNING: Static TF publisher exited early with code {static_tf_publisher.returncode}")
+        else:
+            log("Static TF publisher started successfully")
+    else:
+        log(f"No {init_pos_file} found, skipping static TF publisher (no map->global transform)")
+
     log("Starting trajectory logger")
     logger_script = dedent(
         """\
@@ -460,9 +483,14 @@ def main() -> None:
 
     time.sleep(2)
     stop_process(logger, "trajectory logger")
+    if static_tf_publisher is not None:
+        stop_process(static_tf_publisher, "static TF publisher")
     stop_process(openvins, "OpenVINS")
 
     logger_log_handle.close()
+    if static_tf_log_handle is not None:
+        static_tf_log_handle.flush()
+        static_tf_log_handle.close()
     openvins_log_handle.flush()
     openvins_log_handle.close()
     bag_play_log_handle.close()

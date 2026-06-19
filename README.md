@@ -28,7 +28,7 @@ export HF_TOKEN=...   # Hugging Face token with facebook/sam3 access
 python pipeline.py --stages all --align-start-position \
   --input data/floor_1 \
   --output ./out \
-  --image-frames 100,250,400 \
+  --image-frames 523 \
   --slam-rate 0.5 \
   --window-device cpu
 ```

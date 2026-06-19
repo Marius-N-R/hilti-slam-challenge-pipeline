@@ -177,6 +177,9 @@ def main():
             continue
         message = deserialize_message(data, message_class)
         image = decode_image(message, selected_type, bridge)
+        image = cv2.flip(image,0)
+        image = cv2.flip(image,1)
+        
         header_stamp = getattr(getattr(message, "header", None), "stamp", None)
         if header_stamp is not None:
             frame_timestamp_ns = int(header_stamp.sec) * 1000000000 + int(header_stamp.nanosec)

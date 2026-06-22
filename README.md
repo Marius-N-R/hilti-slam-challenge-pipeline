@@ -23,7 +23,7 @@ data/floor_1/
 **Start a complete run:**
 
 ```bash
-export HF_TOKEN=...   # Hugging Face token with facebook/sam3 access
+export HF_TOKEN=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   # Hugging Face token with facebook/sam3 access
 
 python pipeline.py --stages all --align-start-position \
   --input data/floor_1 \

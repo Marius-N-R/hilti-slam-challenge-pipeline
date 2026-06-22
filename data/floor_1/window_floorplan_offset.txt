@@ -1,0 +1,3 @@
+# Window-specific floorplan offset in meters: offset_x offset_y
+# Used by window_align when window observations need a different floorplan edge frame.
+52.0 0.0

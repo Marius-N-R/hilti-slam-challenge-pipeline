@@ -1,42 +1,42 @@
 {
   "estimate_kind": "combined_aligned",
-  "estimate_path": "/home/felix/hilti-slam-challenge-pipeline/out/combined_align/floor_1/trajectory_combined_aligned.csv",
-  "estimate_poses": 4008,
-  "groundtruth_path": "/home/felix/hilti-slam-challenge-pipeline/data/floor_1/groundtruth.txt",
+  "estimate_path": "/home/felix/Projects/hilti-slam-challenge-pipeline/out/combined_align/floor_1/trajectory_combined_aligned.csv",
+  "estimate_poses": 4007,
+  "groundtruth_path": "/home/felix/Projects/hilti-slam-challenge-pipeline/data/floor_1/groundtruth.txt",
   "groundtruth_poses": 3923,
-  "matched_poses": 3925,
+  "matched_poses": 3924,
   "max_time_delta_s": 0.05,
   "time_delta_abs": {
-    "max_s": 0.04176960500080895,
-    "mean_s": 0.004879383782418775,
-    "median_s": 0.004866462000791216,
-    "p90_s": 0.0057272210000519404,
-    "p95_s": 0.0069481204001931455,
-    "rmse_s": 0.004992155730454524
+    "max_s": 0.041958980000345036,
+    "mean_s": 0.005170858778303976,
+    "median_s": 0.005035119000240229,
+    "p90_s": 0.006453144599981897,
+    "p95_s": 0.007944287050850107,
+    "rmse_s": 0.005313245450387098
   },
   "unmatched_estimate_poses": 83,
   "xy": {
-    "max_m": 9.727246489440981,
-    "mean_m": 4.595847402723209,
-    "median_m": 4.073676232655616,
-    "p90_m": 8.953043995521957,
-    "p95_m": 9.401894069059445,
-    "rmse_m": 5.474908282829713
+    "max_m": 1.3535550875049456,
+    "mean_m": 0.9525253296908845,
+    "median_m": 0.9408160039285312,
+    "p90_m": 1.18147608097127,
+    "p95_m": 1.2840447104656336,
+    "rmse_m": 0.9676037773543705
   },
   "xyz": {
-    "max_m": 10.012327368729084,
-    "mean_m": 4.714173312509059,
-    "median_m": 4.093871099049445,
-    "p90_m": 9.29873965130271,
-    "p95_m": 9.70328819802828,
-    "rmse_m": 5.651300296367324
+    "max_m": 1.3537540716218743,
+    "mean_m": 0.9546392650664114,
+    "median_m": 0.9433140754578061,
+    "p90_m": 1.1815395136391424,
+    "p95_m": 1.2841454490928677,
+    "rmse_m": 0.9695660618529107
   },
   "z_abs": {
-    "max_m": 3.0286279085181373,
-    "mean_m": 0.8971077943470963,
-    "median_m": 0.17918614327480986,
-    "p90_m": 2.43184593649722,
-    "p95_m": 2.6587014763322516,
-    "rmse_m": 1.4009191034188975
+    "max_m": 0.1389210891063628,
+    "mean_m": 0.05108581836291138,
+    "median_m": 0.04157650362042592,
+    "p90_m": 0.11292051051344515,
+    "p95_m": 0.11920881315615299,
+    "rmse_m": 0.06165450791723421
   }
 }

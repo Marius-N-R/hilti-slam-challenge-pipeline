@@ -85,6 +85,8 @@ class RaysStage(Stage):
         out_csv = output_dir / OUTPUT_CSV
         kept = 0
         skipped_nan = 0
+        skipped_time = 0
+        max_abs_dt = 0.0
         with out_csv.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(
@@ -107,6 +109,11 @@ class RaysStage(Stage):
                 # aligned trajectory is already cam0-in-world after the align
                 # stage chains through T_cam_imu, so this pose IS T_wrld_cam.
                 idx = int(np.argmin(np.abs(pose_t - ts)))
+                dt = float(pose_t[idx] - ts)
+                max_abs_dt = max(max_abs_dt, abs(dt))
+                if abs(dt) > config.eval_max_time_delta:
+                    skipped_time += 1
+                    continue
                 R_wrld_cam = quat_to_rot(*pose_q[idx])
                 T_wrld_cam = np.eye(4)
                 T_wrld_cam[:3, :3] = R_wrld_cam
@@ -129,7 +136,12 @@ class RaysStage(Stage):
         log_lines = [
             f"Lines CSV: {lines_csv} ({len(lines)} entries)",
             f"Trajectory CSV: {traj_csv} ({traj_kind}, {len(pose_t)} poses)",
-            f"Rays written: {kept}; skipped (outside EUCM valid radius): {skipped_nan}",
+            (
+                f"Rays written: {kept}; skipped (outside EUCM valid radius): "
+                f"{skipped_nan}; skipped (timestamp dt > "
+                f"{config.eval_max_time_delta:.3f}s): {skipped_time}; "
+                f"max nearest-pose dt seen: {max_abs_dt:.6f}s"
+            ),
             f"Output: {out_csv}",
         ]
         (output_dir / f"{self.name}.log").write_text(

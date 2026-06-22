@@ -23,6 +23,8 @@ OBSERVATIONS_CSV = "window_alignment_observations.csv"
 SKIPPED_CSV = "window_alignment_skipped.csv"
 TRANSFORM_JSON = "window_alignment_transform.json"
 BASE_TRAJECTORY_CSV = "trajectory_aligned.csv"
+FLOORPLAN_OFFSET_FILENAME = "floorplan_offset.txt"
+WINDOW_FLOORPLAN_OFFSET_FILENAME = "window_floorplan_offset.txt"
 
 
 class WindowAlignStage(Stage):
@@ -59,7 +61,7 @@ class WindowAlignStage(Stage):
         window_pose_dir = stage_output_path(config, "window_pose")
 
         timestamps, xyz, quats = load_pose_csv(base_traj_path)
-        edges = _load_edges(edges_path)
+        edges, edge_offset_note = _load_edges(edges_path, config)
         frame_timestamps = _load_frame_timestamps(metadata_path)
 
         observations, skipped = _build_observations(
@@ -75,7 +77,27 @@ class WindowAlignStage(Stage):
             max_edge_distance=config.window_max_edge_distance,
         )
         if not observations:
-            raise RuntimeError("No usable window observations found for window alignment")
+            stage_root = Path(tempfile.mkdtemp(prefix=f"{self.name}-", dir=runner.runtime_dir))
+            output_dir = stage_root / "output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            _write_skipped(output_dir / SKIPPED_CSV, skipped)
+            log_lines = [
+                f"Base trajectory: {base_traj_path} ({len(timestamps)} poses)",
+                f"Floorplan edges: {edges_path} ({len(edges)} segments; {edge_offset_note})",
+                f"Window observations: 0 frames / 0 points",
+                f"Skipped window observations: {len(skipped)}",
+                f"Skipped details: {output_dir / SKIPPED_CSV}",
+            ]
+            (output_dir / f"{self.name}.log").write_text(
+                "\n".join(log_lines) + "\n", encoding="utf-8"
+            )
+            (output_dir / f"{self.name}.status").write_text("1", encoding="utf-8")
+            for line in log_lines:
+                print(f"[{self.name}] {line}")
+            raise RuntimeError(
+                "No usable window observations found for window alignment; "
+                f"see {output_dir / SKIPPED_CSV}"
+            )
 
         source_points = np.asarray(
             [point for obs in observations for point in (obs["observed_bl"], obs["observed_br"])],
@@ -111,6 +133,7 @@ class WindowAlignStage(Stage):
                 else "openvins_world_cam0"
             ),
             "floorplan_edges": str(edges_path),
+            "floorplan_edges_offset_note": edge_offset_note,
             "selected_frames": str(metadata_path),
             "window_pose_dir": str(window_pose_dir),
             "observations": len(observations),
@@ -145,7 +168,7 @@ class WindowAlignStage(Stage):
                     "OpenVINS-world cam0 coordinates before floorplan matching"
                 )
             ),
-            f"Floorplan edges: {edges_path} ({len(edges)} segments)",
+            f"Floorplan edges: {edges_path} ({len(edges)} segments; {edge_offset_note})",
             f"Window observations: {len(observations)} frames / {len(source_points)} points",
             f"Skipped window observations: {len(skipped)}",
             f"Yaw correction: {math.degrees(yaw):+.3f} deg",
@@ -183,7 +206,7 @@ def _resolve_base_trajectory(config: StageConfig) -> Path:
     )
 
 
-def _load_edges(path: Path) -> np.ndarray:
+def _load_edges(path: Path, config: StageConfig) -> tuple[np.ndarray, str]:
     rows = []
     with path.open(encoding="utf-8") as handle:
         for raw_line in handle:
@@ -199,7 +222,57 @@ def _load_edges(path: Path) -> np.ndarray:
                 rows.append(values)
     if not rows:
         raise ValueError(f"No floorplan edges found in {path}")
-    return np.asarray(rows, dtype=float)
+    edges = np.asarray(rows, dtype=float)
+    delta, note = _window_edge_offset_delta(config)
+    if delta is not None:
+        edges[:, [0, 2]] += delta[0]
+        edges[:, [1, 3]] += delta[1]
+    return edges, note
+
+
+def _window_edge_offset_delta(config: StageConfig) -> tuple[np.ndarray | None, str]:
+    original = config.extra.get("current_input_path", "")
+    if not original:
+        return None, "using floorplan_edges offset"
+    original_dir = Path(original)
+    window_offset_path = original_dir / WINDOW_FLOORPLAN_OFFSET_FILENAME
+    if not window_offset_path.is_file():
+        return None, "using floorplan_edges offset"
+
+    floor_offset_path = original_dir / FLOORPLAN_OFFSET_FILENAME
+    floor_offset = _load_offset_pair(floor_offset_path) if floor_offset_path.is_file() else (0.0, 0.0)
+    window_offset = _load_offset_pair(window_offset_path)
+    delta = np.asarray(
+        [
+            float(window_offset[0] - floor_offset[0]),
+            float(window_offset[1] - floor_offset[1]),
+        ],
+        dtype=float,
+    )
+    return (
+        delta,
+        (
+            f"window-specific offset {window_offset_path.name}: "
+            f"({window_offset[0]:+.3f}, {window_offset[1]:+.3f}) m; "
+            f"delta from floorplan_edges=({delta[0]:+.3f}, {delta[1]:+.3f}) m"
+        ),
+    )
+
+
+def _load_offset_pair(path: Path) -> tuple[float, float]:
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            parts = stripped.replace(",", " ").split()
+            try:
+                values = [float(part) for part in parts]
+            except ValueError:
+                continue
+            if len(values) == 2:
+                return float(values[0]), float(values[1])
+    raise ValueError(f"No (offset_x, offset_y) row found in {path}")
 
 
 def _load_frame_timestamps(path: Path) -> dict[str, float]:
@@ -255,7 +328,13 @@ def _build_observations(
             skipped.append(
                 {
                     "frame": frame,
-                    "reason": f"timestamp_dt_exceeds_limit:{dt:.6f}",
+                    "reason": (
+                        "timestamp_dt_exceeds_limit:"
+                        f"dt={dt:.6f},"
+                        f"frame_t={timestamp:.6f},"
+                        f"nearest_traj_t={float(traj_t[traj_idx]):.6f},"
+                        f"traj_range={float(traj_t[0]):.6f}..{float(traj_t[-1]):.6f}"
+                    ),
                 }
             )
             continue
@@ -337,10 +416,10 @@ def _window_summary_rejection_reason(
 
 def _window_point_to_map_xy(cam_xyz: np.ndarray, cam_quat: np.ndarray, point: np.ndarray) -> np.ndarray:
     rotation = quat_to_rot(*cam_quat)
-    # Window pose summaries use x/lateral, y/up, z/forward in a gravity-aligned
-    # camera-local frame. Project that local x/z displacement through the cam0
-    # orientation so it lands in the same map xy frame as the trajectory.
-    offset_xy = rotation[:2, 0] * point[0] + rotation[:2, 2] * point[2]
+    # Window pose summaries use x/lateral, y/up, and negative z as forward in a
+    # gravity-aligned camera-local frame. Project local x/(-z) displacement
+    # through cam0 orientation so it lands in the trajectory's map xy frame.
+    offset_xy = rotation[:2, 0] * point[0] - rotation[:2, 2] * point[2]
     return cam_xyz[:2] + offset_xy
 
 
